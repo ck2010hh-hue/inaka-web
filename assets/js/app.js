@@ -1888,7 +1888,7 @@
 
   var Memo = {
     key: 'review', label: '备忘', icon: '📝',
-    _search: '', _filter: '', _detailId: null, _addMode: false, _addTag: 'life', _addPhotos: [],
+    _search: '', _filter: '', _detailId: null, _addMode: false, _editId: null, _addTag: 'life', _addPhotos: [],
     render: function (s) {
       var self = this;
       var searchBar = '<div class="memo-top">' +
@@ -1904,7 +1904,7 @@
         '</div>';
       return section('备忘', '随手记录 · 生活 / 工作', '') + searchBar + filterBar +
         '<div id="memoList">' + this.renderListHtml(s) + '</div>' +
-        this.renderAdd(s) + this.renderDetail(s);
+        this.renderEditor(s) + this.renderDetail(s);
     },
     renderListHtml: function (s) {
       var self = this;
@@ -1931,28 +1931,36 @@
           '</div>';
       }).join('') + '</div>';
     },
-    renderAdd: function () {
-      if (!this._addMode) return '';
+    renderEditor: function (s) {
       var self = this;
+      var editing = !!self._editId;
+      var cur = editing ? (s.review || []).find(function (y) { return y.id === self._editId; }) : null;
+      if (editing && !cur) { self._editId = null; return ''; }
+      if (!self._addMode && !editing) return '';
+      var tag = editing ? cur.tag : self._addTag;
+      var photos = editing ? (cur.photos || []) : self._addPhotos;
       var tagBtns = MEMO_TAGS.map(function (t) {
-        var active = self._addTag === t.key ? ' active' : '';
+        var active = tag === t.key ? ' active' : '';
         return '<button class="memo-tag ' + active + '" data-act="memoTagPick" data-tag="' + t.key + '">' + t.icon + ' ' + t.label + '</button>';
       }).join('');
-      var photos = (self._addPhotos || []).map(function (p, i) {
+      var photoHtml = photos.map(function (p, i) {
         return '<div class="memo-thumb"><img src="' + p + '"><button class="memo-photo-del" data-act="memoPhotoDel" data-i="' + i + '">✕</button></div>';
       }).join('');
-      return '<div class="overlay open" id="memoAddOverlay"><div class="detail memo-detail">' +
-        '<div class="detail-head"><div class="detail-title">新增备忘</div><div class="head-actions"><button class="btn ghost" data-act="memoAddCancel">取消</button></div></div>' +
+      var createdLabel = editing ? fmtMemoDT(cur.created) : fmtMemoDT(Date.now());
+      var titleVal = editing ? esc(cur.title || '') : '';
+      var contentVal = editing ? esc(cur.content || '') : '';
+      return '<div class="overlay open" id="memoEditorOverlay"><div class="detail memo-detail">' +
+        '<div class="detail-head"><div class="detail-title">' + (editing ? '编辑备忘' : '新增备忘') + '</div><div class="head-actions"><button class="btn ghost" data-act="memoEditCancel">取消</button></div></div>' +
         '<div class="detail-body">' +
-        '<div class="detail-section"><label>标题</label><input class="input" id="memoTitle" placeholder="如：周末采购清单"></div>' +
-        '<div class="detail-section memo-created">创建：' + fmtMemoDT(Date.now()) + '</div>' +
+        '<div class="detail-section"><label>标题</label><input class="input" id="memoTitle" placeholder="如：周末采购清单" value="' + titleVal + '"></div>' +
+        '<div class="detail-section memo-created">创建：' + createdLabel + '</div>' +
         '<div class="detail-section"><label>分类</label><div class="memo-tag-row">' + tagBtns + '</div></div>' +
-        '<div class="detail-section"><label>内容</label><textarea class="textarea" id="memoContent" placeholder="写点什么…"></textarea></div>' +
+        '<div class="detail-section"><label>内容</label><textarea class="textarea" id="memoContent" placeholder="写点什么…">' + contentVal + '</textarea></div>' +
         '<div class="detail-section"><label>照片</label>' +
-        '<div class="memo-photos-edit">' + photos +
+        '<div class="memo-photos-edit" id="memoPhotosEdit">' + photoHtml +
         '<label class="memo-photo-add"><input type="file" id="memoPhotoInput" accept="image/*" multiple style="display:none"><span>+ 添加照片</span></label></div>' +
         '</div>' +
-        '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="memoSave">保存备忘</button></div>' +
+        '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="memoSave">' + (editing ? '保存修改' : '保存备忘') + '</button></div>' +
         '</div></div></div>';
     },
     renderDetail: function (s) {
@@ -1963,6 +1971,7 @@
       var photos = (x.photos || []).map(function (p) { return '<img class="memo-detail-photo" src="' + p + '">'; }).join('');
       return '<div class="overlay open" id="memoDetailOverlay"><div class="detail memo-detail">' +
         '<div class="detail-head"><div class="detail-title">' + esc(x.title || '（无标题）') + '</div><div class="head-actions">' +
+        '<button class="btn ghost" data-act="memoEdit" data-id="' + x.id + '">编辑</button>' +
         '<button class="btn ghost danger" data-act="memoDel" data-id="' + x.id + '">删除</button>' +
         '<button class="btn ghost" data-act="memoClose">关闭</button></div></div>' +
         '<div class="detail-body">' +
@@ -1972,8 +1981,20 @@
         '</div></div></div>';
     },
     acts: {
-      memoAdd: function () { Memo._addMode = true; Memo._addTag = 'life'; Memo._addPhotos = []; renderPage('review'); },
-      memoAddCancel: function () { Memo._addMode = false; Memo._addPhotos = []; renderPage('review'); },
+      memoAdd: function () { Memo._addMode = true; Memo._editId = null; Memo._addTag = 'life'; Memo._addPhotos = []; renderPage('review'); },
+      memoAddCancel: function () { Memo._addMode = false; Memo._editId = null; Memo._addPhotos = []; renderPage('review'); },
+      memoEditCancel: function () { Memo._addMode = false; Memo._editId = null; Memo._addPhotos = []; renderPage('review'); },
+      memoEdit: function (el) {
+        var id = el.dataset.id;
+        var x = (state.review || []).find(function (y) { return y.id === id; });
+        if (!x) return;
+        Memo._detailId = null;
+        Memo._editId = id;
+        Memo._addMode = false;
+        Memo._addTag = x.tag || 'life';
+        Memo._addPhotos = (x.photos || []).slice();
+        renderPage('review');
+      },
       memoTagPick: function (el) {
         Memo._addTag = el.dataset.tag;
         Array.prototype.forEach.call(document.querySelectorAll('.memo-tag-row .memo-tag'), function (b) {
@@ -1989,14 +2010,23 @@
         Memo._addPhotos.splice(i, 1);
         var th = el.closest('.memo-thumb'); if (th) th.remove();
         // 重新编号剩余缩略图，保证与 _addPhotos 索引一致
-        Array.prototype.forEach.call(document.querySelectorAll('#memoPhotosEdit .memo-photo-del'), function (btn, idx) { btn.dataset.i = idx; });
+        var wrap = document.getElementById('memoPhotosEdit');
+        if (wrap) Array.prototype.forEach.call(wrap.querySelectorAll('.memo-photo-del'), function (btn, idx) { btn.dataset.i = idx; });
       },
       memoSave: function () {
         var title = (document.getElementById('memoTitle') || {}).value || '';
         var content = (document.getElementById('memoContent') || {}).value || '';
         title = title.trim(); content = content.trim();
         if (!title && !content) { toast('标题或内容至少填一项'); return; }
-        state.review.unshift({ id: S.uid(), title: title, content: content, tag: Memo._addTag, created: Date.now(), photos: Memo._addPhotos.slice() });
+        if (Memo._editId) {
+          var x = (state.review || []).find(function (y) { return y.id === Memo._editId; });
+          if (x) {
+            x.title = title; x.content = content; x.tag = Memo._addTag; x.photos = Memo._addPhotos.slice();
+          }
+          Memo._editId = null;
+        } else {
+          state.review.unshift({ id: S.uid(), title: title, content: content, tag: Memo._addTag, created: Date.now(), photos: Memo._addPhotos.slice() });
+        }
         Memo._addMode = false; Memo._addPhotos = [];
         saveRender();
         toast('已保存');
@@ -2013,8 +2043,8 @@
       if (si) si.addEventListener('input', function () { self._search = si.value; var box = document.getElementById('memoList'); if (box) box.innerHTML = self.renderListHtml(state); });
       var pi = document.getElementById('memoPhotoInput');
       if (pi) pi.addEventListener('change', function () { memoHandlePhotos(pi.files); });
-      var ao = document.getElementById('memoAddOverlay');
-      if (ao) ao.addEventListener('click', function (e) { if (e.target.id === 'memoAddOverlay') { self._addMode = false; self._addPhotos = []; renderPage('review'); } });
+      var ao = document.getElementById('memoEditorOverlay');
+      if (ao) ao.addEventListener('click', function (e) { if (e.target.id === 'memoEditorOverlay') { self._addMode = false; self._editId = null; self._addPhotos = []; renderPage('review'); } });
       var dvo = document.getElementById('memoDetailOverlay');
       if (dvo) dvo.addEventListener('click', function (e) { if (e.target.id === 'memoDetailOverlay') { self._detailId = null; renderPage('review'); } });
     }
