@@ -52,21 +52,13 @@
   // ---- 聚焦 ----
   var Focus = {
     key: 'focus', label: '聚焦', icon: '◎',
-    _editId: null,
     render: function (s) {
       var date = today();
       var list = (s.focus[date] || []);
       var items = list.length ? list.map(function (it) {
-        if (Focus._editId === it.id) {
-          return '<div class="item">' +
-            '<input class="input" id="focusEdit" value="' + esc(it.text) + '">' +
-            '<button class="x edit" data-act="saveFocusEdit" data-id="' + it.id + '" title="保存">✓</button>' +
-            '<button class="x" data-act="cancelFocusEdit" title="取消">✕</button></div>';
-        }
         return '<div class="item ' + (it.done ? 'done' : '') + '">' +
           '<div class="check ' + (it.done ? 'on' : '') + '" data-act="toggle" data-id="' + it.id + '">' + (it.done ? '✓' : '') + '</div>' +
           '<div class="body"><div class="title">' + esc(it.text) + '</div></div>' +
-          '<button class="x edit" data-act="editFocus" data-id="' + it.id + '" title="编辑">✎</button>' +
           '<button class="x" data-act="del" data-id="' + it.id + '">✕</button></div>';
       }).join('') : '<div class="empty">今天还没有聚焦目标，加一个 ↓</div>';
       return section('聚焦', '今天的 3 件要事', '') +
@@ -92,20 +84,9 @@
         var it = arr.find(function (x) { return x.id === el.dataset.id; });
         if (it) { it.done = !it.done; it.updatedAt = Date.now(); saveRender(); }
       },
-      editFocus: function (el) { Focus._editId = el.dataset.id; renderPage('focus'); },
-      saveFocusEdit: function (el) {
-        var inp = document.getElementById('focusEdit'); if (!inp) return;
-        var v = inp.value.trim(); if (!v) return;
-        var d = document.getElementById('focusDate').value || today();
-        var it = (state.focus[d] || []).find(function (x) { return x.id === el.dataset.id; });
-        if (it) { it.text = v; it.updatedAt = Date.now(); }
-        Focus._editId = null; saveRender();
-      },
-      cancelFocusEdit: function () { Focus._editId = null; renderPage('focus'); },
       del: function (el) {
         var d = document.getElementById('focusDate').value || today();
         state.focus[d] = (state.focus[d] || []).filter(function (x) { return x.id !== el.dataset.id; });
-        if (Focus._editId === el.dataset.id) Focus._editId = null;
         saveRender();
       }
     },
@@ -851,47 +832,28 @@
   var Strategy = simpleModule({
     key: 'strategy', title: '战略', desc: '方向 / 打法 / 判断', label: '战略', icon: '⚑', listTitle: '战略清单',
     form: function () {
-      var editing = !!Strategy._editId;
-      var cur = editing ? (state.strategy || []).find(function (x) { return x.id === Strategy._editId; }) : null;
-      if (editing && !cur) { Strategy._editId = null; editing = false; }
-      var titleVal = editing ? esc(cur.title || '') : '';
-      var contentVal = editing ? esc(cur.content || '') : '';
-      var st = editing ? (cur.status || '思考中') : '思考中';
-      var opt = function (v) { return '<option' + (st === v ? ' selected' : '') + '>' + v + '</option>'; };
-      return '<div class="grid cols-2"><div class="field" style="margin:0"><label>主题</label><input class="input" id="stTitle" placeholder="如：日系日化进口中长期策略" value="' + titleVal + '"></div>' +
-        '<div class="field" style="margin:0"><label>状态</label><select class="select" id="stStatus">' + opt('思考中') + opt('已定') + opt('执行中') + '</select></div>' +
-        '<div class="field" style="margin:0 0 12px"><label>内容</label><textarea class="textarea" id="stContent" placeholder="核心判断、打法…">' + contentVal + '</textarea></div>' +
-        '<div style="display:flex;justify-content:flex-end;gap:8px">' +
-        (editing ? '<button class="btn ghost" data-act="cancelEdit">取消</button>' : '') +
-        '<button class="btn" data-act="add">' + (editing ? '保存修改' : '保存') + '</button></div></div>';
+      return '<div class="grid cols-2"><div class="field" style="margin:0"><label>主题</label><input class="input" id="stTitle" placeholder="如：日系日化进口中长期策略"></div>' +
+        '<div class="field" style="margin:0"><label>状态</label><select class="select" id="stStatus"><option>思考中</option><option>已定</option><option>执行中</option></select></div>' +
+        '<div class="field" style="margin:0 0 12px"><label>内容</label><textarea class="textarea" id="stContent" placeholder="核心判断、打法…"></textarea></div>' +
+        '<div style="display:flex;justify-content:flex-end"><button class="btn" data-act="add">保存</button></div></div>';
     },
     renderList: function (arr) {
       return arr.slice().reverse().map(function (x) {
         var stCls = x.status === '已定' || x.status === '执行中' ? 'green' : 'gray';
         return '<div class="item"><div class="body"><div class="title">' + esc(x.title) + ' <span class="tag ' + stCls + '">' + esc(x.status || '') + '</span></div>' +
           (x.content ? '<div class="muted" style="margin-top:4px;white-space:pre-wrap">' + esc(x.content) + '</div>' : '') + '</div>' +
-          '<button class="x edit" data-act="edit" data-id="' + x.id + '" title="编辑">✎</button>' +
           '<button class="x" data-act="del" data-id="' + x.id + '">✕</button></div>';
       }).join('');
     },
     acts: {
       add: function () {
         var v = document.getElementById('stTitle').value.trim(); if (!v) return;
-        if (Strategy._editId) {
-          var it = (state.strategy || []).find(function (x) { return x.id === Strategy._editId; });
-          if (it) { it.title = v; it.content = document.getElementById('stContent').value.trim(); it.status = document.getElementById('stStatus').value; }
-          Strategy._editId = null;
-        } else {
-          state.strategy.unshift({ id: S.uid(), title: v, content: document.getElementById('stContent').value.trim(), status: document.getElementById('stStatus').value, created: Date.now() });
-        }
+        state.strategy.unshift({ id: S.uid(), title: v, content: document.getElementById('stContent').value.trim(), status: document.getElementById('stStatus').value, created: Date.now() });
         saveRender();
       },
-      edit: function (el) { Strategy._editId = el.dataset.id; renderPage('strategy'); },
-      cancelEdit: function () { Strategy._editId = null; renderPage('strategy'); },
-      del: function (el) { if (ask('删除？')) { state.strategy = state.strategy.filter(function (x) { return x.id !== el.dataset.id; }); if (Strategy._editId === el.dataset.id) Strategy._editId = null; saveRender(); } }
+      del: function (el) { if (ask('删除？')) { state.strategy = state.strategy.filter(function (x) { return x.id !== el.dataset.id; }); saveRender(); } }
     }
   });
-  Strategy._editId = null;
 
   /* ================= 人脉（完整模块：资源视图 + 关系网络） ================= */
   var BRANCHES = [
@@ -1926,7 +1888,7 @@
 
   var Memo = {
     key: 'review', label: '备忘', icon: '📝',
-    _search: '', _filter: '', _detailId: null, _addMode: false, _editId: null, _addTag: 'life', _addPhotos: [],
+    _search: '', _filter: '', _detailId: null, _addMode: false, _addTag: 'life', _addPhotos: [],
     render: function (s) {
       var self = this;
       var searchBar = '<div class="memo-top">' +
@@ -1942,7 +1904,7 @@
         '</div>';
       return section('备忘', '随手记录 · 生活 / 工作', '') + searchBar + filterBar +
         '<div id="memoList">' + this.renderListHtml(s) + '</div>' +
-        this.renderEditor(s) + this.renderDetail(s);
+        this.renderAdd(s) + this.renderDetail(s);
     },
     renderListHtml: function (s) {
       var self = this;
@@ -1969,36 +1931,28 @@
           '</div>';
       }).join('') + '</div>';
     },
-    renderEditor: function (s) {
+    renderAdd: function () {
+      if (!this._addMode) return '';
       var self = this;
-      var editing = !!self._editId;
-      var cur = editing ? (s.review || []).find(function (y) { return y.id === self._editId; }) : null;
-      if (editing && !cur) { self._editId = null; return ''; }
-      if (!self._addMode && !editing) return '';
-      var tag = editing ? cur.tag : self._addTag;
-      var photos = editing ? (cur.photos || []) : self._addPhotos;
       var tagBtns = MEMO_TAGS.map(function (t) {
-        var active = tag === t.key ? ' active' : '';
+        var active = self._addTag === t.key ? ' active' : '';
         return '<button class="memo-tag ' + active + '" data-act="memoTagPick" data-tag="' + t.key + '">' + t.icon + ' ' + t.label + '</button>';
       }).join('');
-      var photoHtml = photos.map(function (p, i) {
+      var photos = (self._addPhotos || []).map(function (p, i) {
         return '<div class="memo-thumb"><img src="' + p + '"><button class="memo-photo-del" data-act="memoPhotoDel" data-i="' + i + '">✕</button></div>';
       }).join('');
-      var createdLabel = editing ? fmtMemoDT(cur.created) : fmtMemoDT(Date.now());
-      var titleVal = editing ? esc(cur.title || '') : '';
-      var contentVal = editing ? esc(cur.content || '') : '';
-      return '<div class="overlay open" id="memoEditorOverlay"><div class="detail memo-detail">' +
-        '<div class="detail-head"><div class="detail-title">' + (editing ? '编辑备忘' : '新增备忘') + '</div><div class="head-actions"><button class="btn ghost" data-act="memoEditCancel">取消</button></div></div>' +
+      return '<div class="overlay open" id="memoAddOverlay"><div class="detail memo-detail">' +
+        '<div class="detail-head"><div class="detail-title">新增备忘</div><div class="head-actions"><button class="btn ghost" data-act="memoAddCancel">取消</button></div></div>' +
         '<div class="detail-body">' +
-        '<div class="detail-section"><label>标题</label><input class="input" id="memoTitle" placeholder="如：周末采购清单" value="' + titleVal + '"></div>' +
-        '<div class="detail-section memo-created">创建：' + createdLabel + '</div>' +
+        '<div class="detail-section"><label>标题</label><input class="input" id="memoTitle" placeholder="如：周末采购清单"></div>' +
+        '<div class="detail-section memo-created">创建：' + fmtMemoDT(Date.now()) + '</div>' +
         '<div class="detail-section"><label>分类</label><div class="memo-tag-row">' + tagBtns + '</div></div>' +
-        '<div class="detail-section"><label>内容</label><textarea class="textarea" id="memoContent" placeholder="写点什么…">' + contentVal + '</textarea></div>' +
+        '<div class="detail-section"><label>内容</label><textarea class="textarea" id="memoContent" placeholder="写点什么…"></textarea></div>' +
         '<div class="detail-section"><label>照片</label>' +
-        '<div class="memo-photos-edit" id="memoPhotosEdit">' + photoHtml +
+        '<div class="memo-photos-edit">' + photos +
         '<label class="memo-photo-add"><input type="file" id="memoPhotoInput" accept="image/*" multiple style="display:none"><span>+ 添加照片</span></label></div>' +
         '</div>' +
-        '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="memoSave">' + (editing ? '保存修改' : '保存备忘') + '</button></div>' +
+        '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="memoSave">保存备忘</button></div>' +
         '</div></div></div>';
     },
     renderDetail: function (s) {
@@ -2009,7 +1963,6 @@
       var photos = (x.photos || []).map(function (p) { return '<img class="memo-detail-photo" src="' + p + '">'; }).join('');
       return '<div class="overlay open" id="memoDetailOverlay"><div class="detail memo-detail">' +
         '<div class="detail-head"><div class="detail-title">' + esc(x.title || '（无标题）') + '</div><div class="head-actions">' +
-        '<button class="btn ghost" data-act="memoEdit" data-id="' + x.id + '">编辑</button>' +
         '<button class="btn ghost danger" data-act="memoDel" data-id="' + x.id + '">删除</button>' +
         '<button class="btn ghost" data-act="memoClose">关闭</button></div></div>' +
         '<div class="detail-body">' +
@@ -2019,20 +1972,8 @@
         '</div></div></div>';
     },
     acts: {
-      memoAdd: function () { Memo._addMode = true; Memo._editId = null; Memo._addTag = 'life'; Memo._addPhotos = []; renderPage('review'); },
-      memoAddCancel: function () { Memo._addMode = false; Memo._editId = null; Memo._addPhotos = []; renderPage('review'); },
-      memoEditCancel: function () { Memo._addMode = false; Memo._editId = null; Memo._addPhotos = []; renderPage('review'); },
-      memoEdit: function (el) {
-        var id = el.dataset.id;
-        var x = (state.review || []).find(function (y) { return y.id === id; });
-        if (!x) return;
-        Memo._detailId = null;
-        Memo._editId = id;
-        Memo._addMode = false;
-        Memo._addTag = x.tag || 'life';
-        Memo._addPhotos = (x.photos || []).slice();
-        renderPage('review');
-      },
+      memoAdd: function () { Memo._addMode = true; Memo._addTag = 'life'; Memo._addPhotos = []; renderPage('review'); },
+      memoAddCancel: function () { Memo._addMode = false; Memo._addPhotos = []; renderPage('review'); },
       memoTagPick: function (el) {
         Memo._addTag = el.dataset.tag;
         Array.prototype.forEach.call(document.querySelectorAll('.memo-tag-row .memo-tag'), function (b) {
@@ -2048,23 +1989,14 @@
         Memo._addPhotos.splice(i, 1);
         var th = el.closest('.memo-thumb'); if (th) th.remove();
         // 重新编号剩余缩略图，保证与 _addPhotos 索引一致
-        var wrap = document.getElementById('memoPhotosEdit');
-        if (wrap) Array.prototype.forEach.call(wrap.querySelectorAll('.memo-photo-del'), function (btn, idx) { btn.dataset.i = idx; });
+        Array.prototype.forEach.call(document.querySelectorAll('#memoPhotosEdit .memo-photo-del'), function (btn, idx) { btn.dataset.i = idx; });
       },
       memoSave: function () {
         var title = (document.getElementById('memoTitle') || {}).value || '';
         var content = (document.getElementById('memoContent') || {}).value || '';
         title = title.trim(); content = content.trim();
         if (!title && !content) { toast('标题或内容至少填一项'); return; }
-        if (Memo._editId) {
-          var x = (state.review || []).find(function (y) { return y.id === Memo._editId; });
-          if (x) {
-            x.title = title; x.content = content; x.tag = Memo._addTag; x.photos = Memo._addPhotos.slice();
-          }
-          Memo._editId = null;
-        } else {
-          state.review.unshift({ id: S.uid(), title: title, content: content, tag: Memo._addTag, created: Date.now(), photos: Memo._addPhotos.slice() });
-        }
+        state.review.unshift({ id: S.uid(), title: title, content: content, tag: Memo._addTag, created: Date.now(), photos: Memo._addPhotos.slice() });
         Memo._addMode = false; Memo._addPhotos = [];
         saveRender();
         toast('已保存');
@@ -2081,8 +2013,8 @@
       if (si) si.addEventListener('input', function () { self._search = si.value; var box = document.getElementById('memoList'); if (box) box.innerHTML = self.renderListHtml(state); });
       var pi = document.getElementById('memoPhotoInput');
       if (pi) pi.addEventListener('change', function () { memoHandlePhotos(pi.files); });
-      var ao = document.getElementById('memoEditorOverlay');
-      if (ao) ao.addEventListener('click', function (e) { if (e.target.id === 'memoEditorOverlay') { self._addMode = false; self._editId = null; self._addPhotos = []; renderPage('review'); } });
+      var ao = document.getElementById('memoAddOverlay');
+      if (ao) ao.addEventListener('click', function (e) { if (e.target.id === 'memoAddOverlay') { self._addMode = false; self._addPhotos = []; renderPage('review'); } });
       var dvo = document.getElementById('memoDetailOverlay');
       if (dvo) dvo.addEventListener('click', function (e) { if (e.target.id === 'memoDetailOverlay') { self._detailId = null; renderPage('review'); } });
     }
@@ -2124,7 +2056,6 @@
     _dayDate: null,
     _sumOpen: false,
     _sumMonth: null,
-    _editId: null,
     render: function (s) {
       var self = this;
       var items = s.habit.items || [];
@@ -2155,14 +2086,8 @@
       var calDow = DOW.map(function (w) { return '<span class="cal-dow-c">' + w + '</span>'; }).join('');
 
       var mgr = items.length ? items.map(function (it) {
-        if (Habit._editId === it.id) {
-          return '<div class="habit-mgr-item"><input class="input" id="habitEditName" value="' + esc(it.name) + '" style="flex:1">' +
-            '<button class="x edit" data-act="saveHabitName" data-id="' + it.id + '" title="保存">✓</button>' +
-            '<button class="x" data-act="cancelHabitEdit" title="取消">✕</button></div>';
-        }
         return '<div class="habit-mgr-item"><span class="hm-name">' + esc(it.name) + '</span>' +
           (it.def ? '<span class="tag sm">默认</span>' : '') +
-          '<button class="x edit" data-act="editHabit" data-id="' + it.id + '" title="重命名">✎</button>' +
           '<button class="x" data-act="del" data-id="' + it.id + '" title="移除">✕</button></div>';
       }).join('') : '<div class="empty">还没有习惯</div>';
 
@@ -2256,15 +2181,6 @@
       sumNext: function () { Habit._sumMonth = shiftMonth(Habit._sumMonth || Habit._viewMonth, 1); renderPage('habit'); },
       calPrev: function () { Habit._viewMonth = shiftMonth(Habit._viewMonth, -1); renderPage('habit'); },
       calNext: function () { Habit._viewMonth = shiftMonth(Habit._viewMonth, 1); renderPage('habit'); },
-      editHabit: function (el) { Habit._editId = el.dataset.id; renderPage('habit'); },
-      saveHabitName: function (el) {
-        var inp = document.getElementById('habitEditName'); if (!inp) return;
-        var v = inp.value.trim(); if (!v) return;
-        var it = state.habit.items.find(function (x) { return x.id === el.dataset.id; });
-        if (it) it.name = v;
-        Habit._editId = null; saveRender();
-      },
-      cancelHabitEdit: function () { Habit._editId = null; renderPage('habit'); },
       del: function (el) {
         var id = el.dataset.id;
         var it = state.habit.items.find(function (x) { return x.id === id; });
@@ -2275,7 +2191,6 @@
           if (state.habit.removedDefaults.indexOf(id) < 0) state.habit.removedDefaults.push(id);
         }
         state.habit.items = state.habit.items.filter(function (x) { return x.id !== id; });
-        if (Habit._editId === id) Habit._editId = null;
         delete state.habit.punch[id];
         saveRender();
       }
@@ -2291,7 +2206,6 @@
   // ---- 理财 ----
   var Finance = {
     key: 'finance', label: '理财', icon: '¥',
-    _editId: null,
     render: function (s) {
       var recs = s.finance.records || [];
       var month = today().slice(0, 7);
@@ -2301,18 +2215,10 @@
           if (r.type === 'in') inSum += Number(r.amount) || 0; else outSum += Number(r.amount) || 0;
         }
       });
-      var cur = this._editId ? recs.find(function (x) { return x.id === this._editId; }) : null;
-      if (this._editId && !cur) this._editId = null;
-      var fType = cur ? cur.type : 'out';
-      var fCat = cur ? (cur.cat || '') : '';
-      var fAmt = cur ? (cur.amount || '') : '';
-      var fDate = cur ? (cur.date || today()) : today();
-      var fNote = cur ? (cur.note || '') : '';
       var list = recs.length ? recs.slice().sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); }).map(function (r) {
         return '<div class="item"><div class="body"><div class="title">' + esc(r.cat || '') + (r.note ? ' · ' + esc(r.note) : '') + '</div>' +
           '<div class="meta">' + esc(r.date || '') + ' · ' + (r.type === 'in' ? '收入' : '支出') + '</div></div>' +
           '<div style="font-weight:700">' + money(r.type === 'in' ? Number(r.amount) : -Number(r.amount)) + '</div>' +
-          '<button class="x edit" data-act="edit" data-id="' + r.id + '" title="编辑">✎</button>' +
           '<button class="x" data-act="del" data-id="' + r.id + '">✕</button></div>';
       }).join('') : '<div class="empty">还没有记账</div>';
       return section('理财', '收支记录 · 本月', '') +
@@ -2321,45 +2227,29 @@
         '<div class="stat"><div class="n money out">' + money(-outSum) + '</div><div class="l">本月支出</div></div>' +
         '<div class="stat"><div class="n">' + money(inSum - outSum) + '</div><div class="l">本月结余</div></div></div>' +
         '<div class="card"><div class="grid cols-2">' +
-        '<div class="field" style="margin:0"><label>类型</label><select class="select" id="fType"><option value="out"' + (fType === 'out' ? ' selected' : '') + '>支出</option><option value="in"' + (fType === 'in' ? ' selected' : '') + '>收入</option></select></div>' +
-        '<div class="field" style="margin:0"><label>分类</label><input class="input" id="fCat" placeholder="餐饮/差旅/货款…" value="' + esc(fCat) + '"></div>' +
-        '<div class="field" style="margin:0"><label>金额</label><input class="input" id="fAmount" type="number" placeholder="0.00" step="0.01" value="' + esc(String(fAmt)) + '"></div>' +
-        '<div class="field" style="margin:0"><label>日期</label><input class="input" id="fDate" type="date" value="' + esc(fDate) + '"></div>' +
-        '<div class="field" style="margin:0 0 12px"><label>备注</label><input class="input" id="fNote" placeholder="选填" value="' + esc(fNote) + '"></div>' +
-        '<div style="display:flex;justify-content:flex-end;gap:8px">' +
-        (cur ? '<button class="btn ghost" data-act="cancelEdit">取消</button>' : '') +
-        '<button class="btn" data-act="add">' + (cur ? '保存修改' : '记一笔') + '</button></div></div></div>' +
+        '<div class="field" style="margin:0"><label>类型</label><select class="select" id="fType"><option value="out">支出</option><option value="in">收入</option></select></div>' +
+        '<div class="field" style="margin:0"><label>分类</label><input class="input" id="fCat" placeholder="餐饮/差旅/货款…"></div>' +
+        '<div class="field" style="margin:0"><label>金额</label><input class="input" id="fAmount" type="number" placeholder="0.00" step="0.01"></div>' +
+        '<div class="field" style="margin:0"><label>日期</label><input class="input" id="fDate" type="date" value="' + today() + '"></div>' +
+        '<div class="field" style="margin:0 0 12px"><label>备注</label><input class="input" id="fNote" placeholder="选填"></div>' +
+        '<div style="display:flex;justify-content:flex-end"><button class="btn" data-act="add">记一笔</button></div></div></div>' +
         '<div class="card"><h2>明细</h2>' + list + '</div>';
     },
     acts: {
       add: function () {
         var amt = parseFloat(document.getElementById('fAmount').value);
         if (!(amt > 0)) { toast('请输入正确金额'); return; }
-        if (this._editId) {
-          var it = (state.finance.records || []).find(function (x) { return x.id === this._editId; });
-          if (it) {
-            it.type = document.getElementById('fType').value;
-            it.cat = document.getElementById('fCat').value.trim() || '其他';
-            it.amount = amt; it.note = document.getElementById('fNote').value.trim();
-            it.date = document.getElementById('fDate').value || today();
-          }
-          this._editId = null;
-        } else {
-          state.finance.records.unshift({
-            id: S.uid(), type: document.getElementById('fType').value,
-            cat: document.getElementById('fCat').value.trim() || '其他',
-            amount: amt, note: document.getElementById('fNote').value.trim(),
-            date: document.getElementById('fDate').value || today()
-          });
-        }
+        state.finance.records.unshift({
+          id: S.uid(), type: document.getElementById('fType').value,
+          cat: document.getElementById('fCat').value.trim() || '其他',
+          amount: amt, note: document.getElementById('fNote').value.trim(),
+          date: document.getElementById('fDate').value || today()
+        });
         saveRender();
       },
-      edit: function (el) { this._editId = el.dataset.id; renderPage('finance'); },
-      cancelEdit: function () { this._editId = null; renderPage('finance'); },
       del: function (el) {
         if (!ask('删除该记录？')) return;
         state.finance.records = state.finance.records.filter(function (x) { return x.id !== el.dataset.id; });
-        if (this._editId === el.dataset.id) this._editId = null;
         saveRender();
       }
     }
