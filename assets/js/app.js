@@ -390,6 +390,7 @@
     _projTab: 'overview',
     _custTab: 'board',
     _custStage: null,
+    _custCompact: false,
     _custAttr: '',
     _custSearch: '',
     render: function (s) {
@@ -495,13 +496,31 @@
         return hay.indexOf(q) >= 0;
       });
       function cnt(stage) { return all.filter(function (c) { return c.stage === stage; }).length; }
-      var stats = '<div class="stat-row">' +
-        '<div class="stat"><div class="n">' + all.length + '</div><div class="l">客户总数</div></div>' +
-        '<div class="stat"><div class="n">' + cnt('已合作') + '</div><div class="l">已合作</div></div>' +
-        '<div class="stat"><div class="n">' + cnt('跟进中') + '</div><div class="l">跟进中</div></div>' +
-        '<div class="stat"><div class="n">' + cnt('仅建联未沟通') + '</div><div class="l">仅建联未沟通</div></div>' +
+      var stats = '<div class="stat-row cust-stats-row">' +
+        '<div class="stat" data-act="custStat" data-v="all"><div class="n">' + all.length + '</div><div class="l">客户总数</div></div>' +
+        '<div class="stat" data-act="custStat" data-v="已合作"><div class="n">' + cnt('已合作') + '</div><div class="l">已合作</div></div>' +
+        '<div class="stat" data-act="custStat" data-v="跟进中"><div class="n">' + cnt('跟进中') + '</div><div class="l">跟进中</div></div>' +
+        '<div class="stat" data-act="custStat" data-v="仅建联未沟通"><div class="n">' + cnt('仅建联未沟通') + '</div><div class="l">仅建联未沟通</div></div>' +
         '</div>';
-      // 独立阶段页
+      // 顶部统计标签进入的精简纵向列表（快速一览）
+      if (this._custCompact && this._custStage !== null) {
+        var stageFilter = this._custStage === 'all' ? null : this._custStage;
+        var list = filtered.filter(function (c) { return !stageFilter || c.stage === stageFilter; })
+          .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        var title = stageFilter || '全部客户';
+        var rows = list.length ? list.map(function (c) {
+          return '<div class="cust-name-row" data-act="openCust" data-id="' + esc(c.id) + '">' +
+            '<span class="cust-name-txt">' + esc(c.name || '（未命名）') + '</span>' +
+            '<span class="cust-name-meta">' + esc(c.person || '-') + ' · ' + esc(c.region || '-') + '</span>' +
+            '</div>';
+        }).join('') : '<div class="empty">该阶段暂无客户</div>';
+        return stats +
+          '<div class="cust-toolbar"><button class="btn ghost" data-act="custBoardBack">← 返回看板</button>' +
+          '<span class="cust-stage-title">' + esc(title) + '（' + list.length + '）</span>' +
+          '<button class="btn primary" style="margin-left:auto" data-act="addCust" data-pid="' + p.id + '">+ 新增客户</button></div>' +
+          '<div class="cust-name-list">' + rows + '</div>';
+      }
+      // 独立阶段页（用于"查看全部"）
       if (this._custStage) {
         var stage = this._custStage;
         var list = filtered.filter(function (c) { return c.stage === stage; })
@@ -539,19 +558,9 @@
         (this._custTab === 'board' ? board : this.renderCustTable(filtered));
     },
     renderCustCard: function (c) {
-      var pot = c.potential ? '<span class="tag ' + custPotClass(c.potential) + '">' + esc(c.potential) + '潜力</span>' : '';
-      var statusTag = c.status ? '<span class="tag status">' + esc(c.status) + '</span>' : '';
-      var lastMemo = (c.timeline && c.timeline.length) ? (c.timeline.slice(-1)[0].memo || '') : (c.progress || '');
       return '<div class="cust-card" data-act="openCust" data-id="' + esc(c.id) + '" data-stop>' +
         '<div class="cust-title">' + esc(c.name || '') + '</div>' +
         '<div class="cust-person">' + esc(c.person || '') + (c.region ? ' · ' + esc(c.region) : '') + '</div>' +
-        '<div class="cust-tags">' +
-        (c.attr ? '<span class="tag attr">' + esc(c.attr) + '</span>' : '') +
-        (c.channel ? '<span class="tag channel">' + esc(c.channel) + '</span>' : '') +
-        pot + statusTag +
-        '</div>' +
-        '<div class="cust-progress">' + (lastMemo || '暂无进展') + '</div>' +
-        '<div class="cust-foot"><span class="owner-pill">' + esc(c.owner || '') + '</span><span>' + esc(c.outlets || '') + '</span></div>' +
         '</div>';
     },
     renderCustTable: function (list) {
@@ -653,7 +662,9 @@
       },
       projTab: function (el) { Project._projTab = el.dataset.t; renderPage('project'); },
       custAttr: function (el) { Project._custAttr = el.dataset.v; renderPage('project'); },
-      custStage: function (el) { Project._custStage = el.dataset.v || null; renderPage('project'); },
+      custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage('project'); },
+      custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage('project'); },
+      custBoardBack: function () { Project._custStage = null; Project._custCompact = false; renderPage('project'); },
       custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage('project'); },
       importCustTemplate: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
@@ -754,12 +765,12 @@
       },
       openProject: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.id; }); if (!p) return;
-        Project._detailId = el.dataset.id; Project._projTab = 'overview'; Project._custStage = null;
+        Project._detailId = el.dataset.id; Project._projTab = 'overview'; Project._custStage = null; Project._custCompact = false;
         p.lastAccessed = Date.now();
         S.save(false);
         renderPage('project');
       },
-      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._projTab = 'overview'; renderPage('project'); },
+      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._custCompact = false; Project._projTab = 'overview'; renderPage('project'); },
       saveProject: function () {
         var id = Project._detailId; if (!id) return;
         var p = state.project.find(function (x) { return x.id === id; }); if (!p) return;
