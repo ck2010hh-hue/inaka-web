@@ -1838,30 +1838,187 @@
     }
   };
 
-  var Review = simpleModule({
-    key: 'review', title: '复盘', desc: '周期回顾 / 沉淀结论', label: '复盘', icon: '↻', listTitle: '复盘记录',
-    form: function () {
-      return '<div class="grid cols-2"><div class="field" style="margin:0"><label>周期</label><select class="select" id="rPeriod"><option>周复盘</option><option>月复盘</option><option>季复盘</option><option>年复盘</option></select></div>' +
-        '<div class="field" style="margin:0"><label>标题</label><input class="input" id="rTitle" placeholder="如：8月第一周"></div>' +
-        '<div class="field" style="margin:0 0 12px"><label>内容</label><textarea class="textarea" id="rContent" placeholder="做了什么、结果、下一步…"></textarea></div>' +
-        '<div style="display:flex;justify-content:flex-end"><button class="btn" data-act="add">保存</button></div></div>';
+  // ---- 备忘（原「复盘」板块重构） ----
+  var MEMO_TAGS = [
+    { key: 'life', label: '生活', icon: '🌿' },
+    { key: 'work', label: '工作', icon: '💼' }
+  ];
+  function memoTag(k) { return MEMO_TAGS.find(function (t) { return t.key === k; }) || MEMO_TAGS[0]; }
+  function fmtMemoDT(ts) {
+    var d = new Date(ts || Date.now());
+    var p = function (n) { return ('0' + n).slice(-2); };
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  // 图片压缩：限制最大宽 1000px、jpeg 0.72，避免 localStorage 被照片撑爆
+  function memoCompressImage(dataUrl, cb) {
+    var img = new Image();
+    img.onload = function () {
+      var maxW = 1000, w = img.width, h = img.height;
+      if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      try { cb(canvas.toDataURL('image/jpeg', 0.72)); } catch (e) { cb(dataUrl); }
+    };
+    img.onerror = function () { cb(dataUrl); };
+    img.src = dataUrl;
+  }
+  function memoHandlePhotos(files) {
+    if (!files || !files.length) return;
+    Array.prototype.forEach.call(files, function (file) {
+      if (!/^image\//.test(file.type)) return;
+      var reader = new FileReader();
+      reader.onload = function (e) {
+        memoCompressImage(e.target.result, function (dataUrl) {
+          Memo._addPhotos.push(dataUrl);
+          // 局部追加缩略图，不重建整页（避免清空已填的标题/内容）
+          var wrap = document.getElementById('memoPhotosEdit');
+          if (wrap) {
+            var div = document.createElement('div');
+            div.className = 'memo-thumb';
+            div.innerHTML = '<img src="' + dataUrl + '"><button class="memo-photo-del" data-act="memoPhotoDel" data-i="' + (Memo._addPhotos.length - 1) + '">✕</button>';
+            var add = wrap.querySelector('.memo-photo-add');
+            wrap.insertBefore(div, add);
+          }
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  var Memo = {
+    key: 'review', label: '备忘', icon: '📝',
+    _search: '', _filter: '', _detailId: null, _addMode: false, _addTag: 'life', _addPhotos: [],
+    render: function (s) {
+      var self = this;
+      var searchBar = '<div class="memo-top">' +
+        '<input class="input" id="memoSearch" placeholder="搜索备忘…" value="' + esc(self._search) + '">' +
+        '<button class="btn primary" data-act="memoAdd">+ 新增备忘</button>' +
+        '</div>';
+      var filterBar = '<div class="memo-filter">' +
+        MEMO_TAGS.map(function (t) {
+          var active = self._filter === t.key ? ' active' : '';
+          return '<button class="memo-tag ' + active + '" data-act="memoFilter" data-tag="' + t.key + '">' + t.icon + ' ' + t.label + '</button>';
+        }).join('') +
+        (self._filter ? '<button class="memo-tag-clear" data-act="memoFilterClear">全部</button>' : '') +
+        '</div>';
+      return section('备忘', '随手记录 · 生活 / 工作', '') + searchBar + filterBar +
+        '<div id="memoList">' + this.renderListHtml(s) + '</div>' +
+        this.renderAdd(s) + this.renderDetail(s);
     },
-    renderList: function (arr) {
-      return arr.slice().reverse().map(function (x) {
-        return '<div class="item"><div class="body"><div class="title">' + esc(x.title) + ' <span class="tag blue">' + esc(x.period || '') + '</span></div>' +
-          (x.content ? '<div class="muted" style="margin-top:4px;white-space:pre-wrap">' + esc(x.content) + '</div>' : '') + '</div>' +
-          '<button class="x" data-act="del" data-id="' + x.id + '">✕</button></div>';
+    renderListHtml: function (s) {
+      var self = this;
+      var list = (s.review || []).filter(function (x) {
+        if (self._filter && x.tag !== self._filter) return false;
+        if (self._search) {
+          var q = self._search.toLowerCase();
+          if (!((x.title || '').toLowerCase().indexOf(q) >= 0 || (x.content || '').toLowerCase().indexOf(q) >= 0)) return false;
+        }
+        return true;
+      }).sort(function (a, b) { return (b.created || 0) - (a.created || 0); });
+      if (!list.length) return '<div class="empty">暂无备忘' + (self._filter ? '（该分类下）' : '') + '</div>';
+      return '<div class="memo-list">' + list.map(function (x) {
+        var t = memoTag(x.tag);
+        var photos = (x.photos || []).slice(0, 1);
+        var pc = (x.photos || []).length;
+        return '<div class="memo-card" data-act="memoOpen" data-id="' + x.id + '">' +
+          '<div class="memo-card-head"><span class="memo-badge ' + t.key + '">' + t.icon + ' ' + t.label + '</span>' +
+          '<span class="memo-date">' + fmtMemoDT(x.created) + '</span></div>' +
+          '<div class="memo-title">' + esc(x.title || '（无标题）') + '</div>' +
+          (x.content ? '<div class="memo-content">' + esc(x.content) + '</div>' : '') +
+          (photos.length ? '<div class="memo-photos"><div class="memo-thumb"><img src="' + photos[0] + '" alt=""></div>' +
+            (pc > 1 ? '<span class="memo-more">+' + (pc - 1) + '</span>' : '') + '</div>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+    },
+    renderAdd: function () {
+      if (!this._addMode) return '';
+      var self = this;
+      var tagBtns = MEMO_TAGS.map(function (t) {
+        var active = self._addTag === t.key ? ' active' : '';
+        return '<button class="memo-tag ' + active + '" data-act="memoTagPick" data-tag="' + t.key + '">' + t.icon + ' ' + t.label + '</button>';
       }).join('');
+      var photos = (self._addPhotos || []).map(function (p, i) {
+        return '<div class="memo-thumb"><img src="' + p + '"><button class="memo-photo-del" data-act="memoPhotoDel" data-i="' + i + '">✕</button></div>';
+      }).join('');
+      return '<div class="overlay open" id="memoAddOverlay"><div class="detail memo-detail">' +
+        '<div class="detail-head"><div class="detail-title">新增备忘</div><div class="head-actions"><button class="btn ghost" data-act="memoAddCancel">取消</button></div></div>' +
+        '<div class="detail-body">' +
+        '<div class="detail-section"><label>标题</label><input class="input" id="memoTitle" placeholder="如：周末采购清单"></div>' +
+        '<div class="detail-section memo-created">创建：' + fmtMemoDT(Date.now()) + '</div>' +
+        '<div class="detail-section"><label>分类</label><div class="memo-tag-row">' + tagBtns + '</div></div>' +
+        '<div class="detail-section"><label>内容</label><textarea class="textarea" id="memoContent" placeholder="写点什么…"></textarea></div>' +
+        '<div class="detail-section"><label>照片</label>' +
+        '<div class="memo-photos-edit">' + photos +
+        '<label class="memo-photo-add"><input type="file" id="memoPhotoInput" accept="image/*" multiple style="display:none"><span>+ 添加照片</span></label></div>' +
+        '</div>' +
+        '<div style="margin-top:10px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="memoSave">保存备忘</button></div>' +
+        '</div></div></div>';
+    },
+    renderDetail: function (s) {
+      var self = this;
+      var x = self._detailId ? (s.review || []).find(function (y) { return y.id === self._detailId; }) : null;
+      if (!x) return '';
+      var t = memoTag(x.tag);
+      var photos = (x.photos || []).map(function (p) { return '<img class="memo-detail-photo" src="' + p + '">'; }).join('');
+      return '<div class="overlay open" id="memoDetailOverlay"><div class="detail memo-detail">' +
+        '<div class="detail-head"><div class="detail-title">' + esc(x.title || '（无标题）') + '</div><div class="head-actions">' +
+        '<button class="btn ghost danger" data-act="memoDel" data-id="' + x.id + '">删除</button>' +
+        '<button class="btn ghost" data-act="memoClose">关闭</button></div></div>' +
+        '<div class="detail-body">' +
+        '<div class="detail-section"><span class="memo-badge ' + t.key + '">' + t.icon + ' ' + t.label + '</span> <span class="muted">' + fmtMemoDT(x.created) + '</span></div>' +
+        (x.content ? '<div class="detail-section memo-detail-content">' + esc(x.content).replace(/\n/g, '<br>') + '</div>' : '') +
+        (photos ? '<div class="detail-section memo-detail-photos">' + photos + '</div>' : '') +
+        '</div></div></div>';
     },
     acts: {
-      add: function () {
-        var v = document.getElementById('rTitle').value.trim(); if (!v) return;
-        state.review.unshift({ id: S.uid(), title: v, period: document.getElementById('rPeriod').value, content: document.getElementById('rContent').value.trim(), date: today(), created: Date.now() });
-        saveRender();
+      memoAdd: function () { Memo._addMode = true; Memo._addTag = 'life'; Memo._addPhotos = []; renderPage('review'); },
+      memoAddCancel: function () { Memo._addMode = false; Memo._addPhotos = []; renderPage('review'); },
+      memoTagPick: function (el) {
+        Memo._addTag = el.dataset.tag;
+        Array.prototype.forEach.call(document.querySelectorAll('.memo-tag-row .memo-tag'), function (b) {
+          b.classList.toggle('active', b.dataset.tag === Memo._addTag);
+        });
       },
-      del: function (el) { if (ask('删除？')) { state.review = state.review.filter(function (x) { return x.id !== el.dataset.id; }); saveRender(); } }
+      memoFilter: function (el) { Memo._filter = el.dataset.tag; renderPage('review'); },
+      memoFilterClear: function () { Memo._filter = ''; renderPage('review'); },
+      memoOpen: function (el) { Memo._detailId = el.dataset.id; Memo._detailId && renderPage('review'); },
+      memoClose: function () { Memo._detailId = null; renderPage('review'); },
+      memoPhotoDel: function (el) {
+        var i = +el.dataset.i;
+        Memo._addPhotos.splice(i, 1);
+        var th = el.closest('.memo-thumb'); if (th) th.remove();
+        // 重新编号剩余缩略图，保证与 _addPhotos 索引一致
+        Array.prototype.forEach.call(document.querySelectorAll('#memoPhotosEdit .memo-photo-del'), function (btn, idx) { btn.dataset.i = idx; });
+      },
+      memoSave: function () {
+        var title = (document.getElementById('memoTitle') || {}).value || '';
+        var content = (document.getElementById('memoContent') || {}).value || '';
+        title = title.trim(); content = content.trim();
+        if (!title && !content) { toast('标题或内容至少填一项'); return; }
+        state.review.unshift({ id: S.uid(), title: title, content: content, tag: Memo._addTag, created: Date.now(), photos: Memo._addPhotos.slice() });
+        Memo._addMode = false; Memo._addPhotos = [];
+        saveRender();
+        toast('已保存');
+      },
+      memoDel: function (el) {
+        if (!ask('删除该备忘？')) return;
+        state.review = state.review.filter(function (x) { return x.id !== el.dataset.id; });
+        Memo._detailId = null; saveRender(); toast('已删除');
+      }
+    },
+    onRender: function () {
+      var self = this;
+      var si = document.getElementById('memoSearch');
+      if (si) si.addEventListener('input', function () { self._search = si.value; var box = document.getElementById('memoList'); if (box) box.innerHTML = self.renderListHtml(state); });
+      var pi = document.getElementById('memoPhotoInput');
+      if (pi) pi.addEventListener('change', function () { memoHandlePhotos(pi.files); });
+      var ao = document.getElementById('memoAddOverlay');
+      if (ao) ao.addEventListener('click', function (e) { if (e.target.id === 'memoAddOverlay') { self._addMode = false; self._addPhotos = []; renderPage('review'); } });
+      var dvo = document.getElementById('memoDetailOverlay');
+      if (dvo) dvo.addEventListener('click', function (e) { if (e.target.id === 'memoDetailOverlay') { self._detailId = null; renderPage('review'); } });
     }
-  });
+  };
 
   // ---- 打卡 ----
   /* ---------- 打卡：日历视图 + 默认项快捷打卡 + 月度汇总 ---------- */
@@ -2099,7 +2256,7 @@
   };
 
   /* ================= 模块注册 ================= */
-  var modules = [Focus, Todo, Project, Strategy, Contacts, Notes, Habit, Finance, Review];
+  var modules = [Focus, Todo, Project, Strategy, Contacts, Notes, Habit, Finance, Memo];
   var byKey = {};
   modules.forEach(function (m) { byKey[m.key] = m; });
 
@@ -2488,6 +2645,10 @@
 
   /* ================= 初始化 ================= */
   function init() {
+    // 本地存储配额超限提示（多见于备忘里照片过多）
+    window.__onSaveError = function () {
+      toast('⚠️ 本地存储空间已满，部分内容可能未保存。请删除一些带照片的备忘，或清理数据。');
+    };
     var hasLocal = false;
     try { hasLocal = !!localStorage.getItem('inaka_workbench_state_v1'); } catch (e) {}
     if (migrateProjectCats()) S.save(false);

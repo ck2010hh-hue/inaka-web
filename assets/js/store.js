@@ -36,7 +36,7 @@
       contacts: [],
       // 理财
       finance: { accounts: [], records: [], budgets: [] },
-      // 复盘
+      // 复盘 / 备忘（板块显示名已改为「备忘」，字段名沿用 review 以兼容已同步数据）
       review: [],
       // 元信息
       _meta: { lastWrite: 0, lastSync: 0, lastPage: 'focus' }
@@ -181,7 +181,11 @@
     state._meta.lastWrite = Date.now();
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch (e) { console.warn('save failed', e); }
+    } catch (e) {
+      if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
+        if (window.__onSaveError) { try { window.__onSaveError(); } catch (_) {} }
+      } else { console.warn('save failed', e); }
+    }
     // 通知 UI 层：本地数据已变更，触发自动推送（notify=false 时不递归）
     if (notify !== false) {
       saveListeners.forEach(function (cb) { try { cb(); } catch (e) {} });

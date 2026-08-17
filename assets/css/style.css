@@ -695,3 +695,35 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
   .sum-day-d { min-width: 92px; }
   .detail { width: 100%; max-width: 94vw; max-height: 90vh; }
 }
+
+/* ===================== 备忘模块 ===================== */
+.memo-top { display: flex; gap: 10px; margin-bottom: 14px; }
+.memo-top .input { flex: 1; }
+.memo-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.memo-tag { border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft); padding: 6px 14px; border-radius: 999px; cursor: pointer; font-size: 13px; }
+.memo-tag.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.memo-tag-clear { border: none; background: none; color: var(--ink-soft); text-decoration: underline; cursor: pointer; font-size: 12px; }
+.memo-list { display: flex; flex-direction: column; gap: 12px; }
+.memo-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.memo-card:hover { border-color: var(--accent); box-shadow: 0 4px 14px rgba(0,0,0,.06); }
+.memo-card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.memo-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; }
+.memo-badge.life { background: rgba(52,199,89,.14); color: #2a9d52; }
+.memo-badge.work { background: rgba(79,140,255,.14); color: #3a6fd0; }
+.memo-date { font-size: 12px; color: var(--ink-soft); }
+.memo-title { font-size: 15px; font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+.memo-content { font-size: 13px; color: var(--ink-soft); white-space: pre-wrap; line-height: 1.6; max-height: 4.8em; overflow: hidden; }
+.memo-photos { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+.memo-thumb { position: relative; width: 64px; height: 64px; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); flex: 0 0 auto; }
+.memo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.memo-more { font-size: 12px; color: var(--ink-soft); }
+.memo-tag-row { display: flex; gap: 8px; }
+.memo-photos-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.memo-photo-add { display: inline-flex; align-items: center; justify-content: center; min-width: 64px; height: 64px; padding: 0 12px; border: 1px dashed var(--line); border-radius: 8px; color: var(--ink-soft); cursor: pointer; font-size: 12px; }
+.memo-photo-del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(0,0,0,.6); color: #fff; cursor: pointer; font-size: 11px; line-height: 20px; padding: 0; }
+.memo-created { font-size: 12px; color: var(--ink-soft); }
+.memo-detail .detail-body { grid-template-columns: 1fr; }
+.memo-detail-content { font-size: 14px; color: var(--ink); white-space: pre-wrap; line-height: 1.7; }
+.memo-detail-photos { display: flex; flex-direction: column; gap: 10px; }
+.memo-detail-photo { width: 100%; border-radius: 10px; border: 1px solid var(--line); }
+.memo-detail .detail-section { gap: 6px; }
