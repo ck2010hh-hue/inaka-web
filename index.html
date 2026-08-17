@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#15604a" />
+  <title>inaka 的工作台</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="assets/icons/icon-512.png" />
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">inaka 的工作台</div>
+        <div class="sub">FOCUS · LIFE · WORK</div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sync-box" id="syncBox">
+        <div class="row">
+          <span><span class="dot" id="syncDot"></span> <span id="syncText">未同步</span></span>
+          <button id="syncBtn">同步</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="settingsBtn">设置</button>
+          <button id="exportBtn" class="m-hide">导出</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="pageHost"></div>
+    </main>
+  </div>
+
+  <!-- 设置弹窗 -->
+  <div class="modal-mask" id="settingsModal">
+    <div class="modal">
+      <h2>数据管理</h2>
+
+      <div class="field">
+        <label>导出备份（换设备/留档）</label>
+        <button class="btn" id="exportBtn2" style="width:100%">下载当前数据 JSON</button>
+      </div>
+      <div class="hint">
+        ① 在本设备点「下载」→ ② 用微信文件传输助手或邮件发到另一台设备 → ③ 在另一台设备打开本链接 → 点设置 → 选文件 → 导入。<br />
+        不依赖任何账号，最安全。
+      </div>
+
+      <div class="field" style="margin-top:14px">
+        <label>导入备份</label>
+        <input class="input" id="importInput" type="file" accept=".json,application/json" />
+      </div>
+      <div class="row-between" style="margin:6px 0 4px">
+        <button class="btn ghost sm" id="importBtn">导入此文件</button>
+        <button class="btn ghost sm danger" id="resetBtn">清空全部数据</button>
+      </div>
+
+      <h2 style="margin-top:22px;font-size:15px">云同步（浏览器直连 · 数据 AES 加密）</h2>
+      <div class="field">
+        <label>同步后端</label>
+        <select class="input" id="syncBackendSelect">
+          <option value="jsonbin">jsonbin.io（海外，免费 100KB/条）</option>
+          <option value="gitee">Gitee 私有仓库（国内，免费 100MB/文件）</option>
+        </select>
+      </div>
+
+      <!-- jsonbin 配置 -->
+      <div id="jsonbinSection">
+        <div class="field">
+          <label>jsonbin API Key（X-Master-Key）</label>
+          <input class="input" id="jsonKeyInput" type="password" placeholder="jsonbin.io → Dashboard → API Keys → Secret Key" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>存档 ID（自动，无需填写）</label>
+          <div class="sync-info" id="jsonBinDisplay">尚未连接</div>
+          <div class="hint" style="margin-top:4px">
+            只要两端填<b>相同的 API Key + 相同的口令</b>，就会自动连到<b>同一个存档</b>（同一个 ID）。
+            两端都同步后，这里的 ID 应当完全一致——<b>若不一致，说明没连到同一存档</b>，点「重新连接存档」再同步即可。
+          </div>
+          <button class="btn ghost sm" id="relinkBtn" style="margin-top:6px">重新连接存档</button>
+        </div>
+        <div class="hint">
+          1. 打开 <b>jsonbin.io</b> 免费注册登录，进入 <b>Dashboard → API Keys</b> 复制 <b>Secret Key（X-Master-Key）</b> 填上方「API Key」栏<br />
+          2. 电脑、手机在「API Key」填<b>同一个</b> Key，「同步口令」也填<b>同一个</b><br />
+          3. 点「保存设置」后，任意一端先点「同步」——代码会自动建好共享存档，另一端同步时自动找到它。
+        </div>
+      </div>
+
+      <!-- Gitee 配置 -->
+      <div id="giteeSection" style="display:none">
+        <div class="field">
+          <label>Gitee 私人令牌（Personal Access Token）</label>
+          <input class="input" id="giteeTokenInput" type="password" placeholder="gitee.com → 设置 → 私人令牌 → 生成新令牌（勾选 projects）" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>仓库名（格式：用户名/仓库名，或只填仓库名）</label>
+          <input class="input" id="giteeRepoInput" type="text" placeholder="例如：inaka/inaka-workbench，或只填 inaka-workbench" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>云端文件</label>
+          <div class="sync-info" id="giteeFileDisplay">inaka-state.json</div>
+        </div>
+        <div class="hint">
+          1. 打开 <b>gitee.com</b> 注册登录，新建一个<b>私有仓库</b>（如 inaka-workbench）<br />
+          2. 进入 <b>设置 → 私人令牌</b>，生成 token 并勾选 <b>projects</b> 权限，复制填入上方<br />
+          3. 「仓库名」可填完整路径 <b>用户名/仓库名</b>，也可只填仓库名，系统会用令牌自动补全用户名；电脑、手机填<b>同一个</b>，「同步口令」也填<b>同一个</b><br />
+          4. 数据 AES 加密后存入仓库，Gitee 只能看到密文；之后改动会自动双向同步。
+        </div>
+      </div>
+
+      <div class="field">
+        <label>同步口令（两端填一样的，用于 AES 加密数据）</label>
+        <input class="input" id="syncPassInput" type="password" placeholder="自定义，如 inaka2026" autocomplete="off" />
+      </div>
+
+      <div class="row-between" style="margin:6px 0 4px">
+        <button class="btn ghost sm" id="syncTestBtn">测试连接</button>
+        <span class="sync-test-result" id="syncTestResult"></span>
+      </div>
+
+      <div class="actions">
+        <button class="btn ghost" id="settingsCancel">关闭</button>
+        <button class="btn" id="settingsSave">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="assets/js/pako.min.js?v=8"></script>
+  <script src="assets/js/store.js?v=8"></script>
+  <script src="assets/js/gitee-sync.js?v=8"></script>
+  <script src="assets/js/regions.js?v=8"></script>
+  <script src="assets/js/ciroa-customers.js?v=8"></script>
+  <script src="assets/js/app.js?v=8"></script>
+</body>
+</html>
