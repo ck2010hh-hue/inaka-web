@@ -393,6 +393,7 @@
     _custCompact: false,
     _custAttr: '',
     _custSearch: '',
+    _timelineEditId: null,
     render: function (s) {
       return section('项目', '渠道 / 品牌 / 合作进展', '') +
         this.renderForm(s) +
@@ -449,11 +450,12 @@
       var self = this;
       var p = this._detailId ? s.project.find(function (x) { return x.id === self._detailId; }) : null;
       if (!p) return '<div class="overlay" id="projectOverlay"></div>';
+      var showCustomers = (p.name === 'ciroa中国线下拓展');
       var tabs = '<div class="detail-tabs">' +
         '<button class="dtab ' + (this._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">概况</button>' +
-        '<button class="dtab ' + (this._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
+        (showCustomers ? '<button class="dtab ' + (this._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' : '') +
         '</div>';
-      var body = this._projTab === 'customers' ? this.renderCustomers(s, p) : this.renderOverviewTab(s, p);
+      var body = (showCustomers && this._projTab === 'customers') ? this.renderCustomers(s, p) : this.renderOverviewTab(s, p);
       return '<div class="overlay open" id="projectOverlay"><div class="detail project-detail"><div class="detail-head"><div class="detail-title">编辑项目</div><div class="head-actions"><button class="btn ghost danger" data-act="delProject" data-id="' + p.id + '">删除项目</button><button class="btn ghost" data-act="closeProject">关闭</button></div></div>' +
         tabs +
         '<div class="detail-body project-detail-body full-width">' + body + '</div></div></div>';
@@ -482,7 +484,37 @@
         '<div class="detail-section"><label>添加关联人脉</label>' + contactSearchBox +
         '<select class="select" id="projectContactSelect">' + linkOpts + '</select>' +
         '<button class="btn" style="margin-top:8px" data-act="addProjectContact" data-pid="' + p.id + '">添加</button></div>' +
+        this.renderProjectTimeline(p) +
         '<div class="row-between" style="margin-top:16px"><button class="btn primary" data-act="saveProject">保存修改</button></div>';
+    },
+    renderProjectTimeline: function (p) {
+      var tl = (p.timeline || []).slice().sort(function (a, b) { return (b.created || 0) - (a.created || 0); }).map(function (t) {
+        if (Project._timelineEditId === t.id) {
+          return '<div class="timeline-item">' +
+            '<div class="timeline-date"><input class="input" id="ptEditDate_' + esc(t.id) + '" type="date" value="' + esc(t.date || today()) + '"></div>' +
+            '<div class="timeline-content" style="display:flex;align-items:center;gap:8px">' +
+            '<input class="input" id="ptEditMemo_' + esc(t.id) + '" value="' + esc(t.memo || '') + '" placeholder="沟通内容 / 进展…" style="flex:1">' +
+            '<button class="x edit" data-act="saveProjectTimeline" data-id="' + esc(t.id) + '" title="保存">✓</button>' +
+            '<button class="x" data-act="cancelProjectTimeline" data-id="' + esc(t.id) + '">✕</button>' +
+            '</div></div>';
+        }
+        return '<div class="timeline-item">' +
+          '<div class="timeline-date">' + esc(t.date || fmtDate(t.created)) + '</div>' +
+          '<div class="timeline-content" style="display:flex;align-items:center;gap:8px">' +
+          '<p style="flex:1;margin:0">' + esc(t.memo || '') + '</p>' +
+          '<button class="x edit" data-act="editProjectTimeline" data-id="' + esc(t.id) + '" title="编辑">✎</button>' +
+          '<button class="x" data-act="delProjectTimeline" data-id="' + esc(t.id) + '">✕</button>' +
+          '</div></div>';
+      }).join('') || '<div class="net-empty">暂无沟通记录。</div>';
+      return '<div class="detail-section">' +
+        '<label>沟通时间线</label>' +
+        '<div class="grid cols-2" style="margin-bottom:8px">' +
+        '<input class="input" id="ptDate" type="date" value="' + today() + '">' +
+        '<input class="input" id="ptMemo" placeholder="沟通内容 / 进展…">' +
+        '</div>' +
+        '<button class="btn" data-act="addProjectTimeline" data-pid="' + p.id + '">添加记录</button>' +
+        '<div class="timeline" style="margin-top:12px">' + tl + '</div>' +
+        '</div>';
     },
     renderCustomers: function (s, p) {
       var self = this;
@@ -656,7 +688,7 @@
         state.project.unshift({
           id: S.uid(), name: v, cat: normalizeProjectCat(document.getElementById('pCat').value),
           status: 'doing', created: Date.now(), updatedAt: Date.now(), lastAccessed: Date.now(),
-          overview: '', contacts: [], progress: [], subs: [], customers: []
+          overview: '', contacts: [], progress: [], subs: [], customers: [], timeline: []
         });
         saveRender();
       },
@@ -763,6 +795,42 @@
         p.updatedAt = Date.now();
         saveRender();
       },
+      addProjectTimeline: function (el) {
+        var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
+        var memo = document.getElementById('ptMemo').value.trim();
+        if (!memo) { toast('请输入沟通内容'); return; }
+        p.timeline = p.timeline || [];
+        p.timeline.push({ id: S.uid(), date: document.getElementById('ptDate').value || today(), memo: memo, created: Date.now() });
+        p.updatedAt = Date.now();
+        saveRender();
+        toast('已添加');
+      },
+      editProjectTimeline: function (el) { Project._timelineEditId = el.dataset.id; renderPage('project'); },
+      saveProjectTimeline: function (el) {
+        var id = el.dataset.id; if (!id) return;
+        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
+        var t = (p.timeline || []).find(function (x) { return x.id === id; }); if (!t) return;
+        var memo = document.getElementById('ptEditMemo_' + id).value.trim();
+        if (!memo) { toast('沟通内容不能为空'); return; }
+        t.memo = memo;
+        t.date = document.getElementById('ptEditDate_' + id).value || today();
+        t.updatedAt = Date.now();
+        p.updatedAt = Date.now();
+        Project._timelineEditId = null;
+        saveRender();
+        toast('已保存');
+      },
+      cancelProjectTimeline: function () { Project._timelineEditId = null; renderPage('project'); },
+      delProjectTimeline: function (el) {
+        var id = el.dataset.id; if (!id) return;
+        if (!ask('删除该沟通记录？')) return;
+        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
+        p.timeline = (p.timeline || []).filter(function (x) { return x.id !== id; });
+        if (Project._timelineEditId === id) Project._timelineEditId = null;
+        p.updatedAt = Date.now();
+        saveRender();
+        toast('已删除');
+      },
       openProject: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.id; }); if (!p) return;
         Project._detailId = el.dataset.id; Project._projTab = 'overview'; Project._custStage = null; Project._custCompact = false;
@@ -770,7 +838,7 @@
         S.save(false);
         renderPage('project');
       },
-      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._custCompact = false; Project._projTab = 'overview'; renderPage('project'); },
+      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._custCompact = false; Project._projTab = 'overview'; Project._timelineEditId = null; renderPage('project'); },
       saveProject: function () {
         var id = Project._detailId; if (!id) return;
         var p = state.project.find(function (x) { return x.id === id; }); if (!p) return;
@@ -813,7 +881,7 @@
     onRender: function () {
       var self = this;
       var ov = document.getElementById('projectOverlay');
-      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'projectOverlay') { self._detailId = null; self._custStage = null; self._projTab = 'overview'; renderPage('project'); } });
+      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'projectOverlay') { self._detailId = null; self._custStage = null; self._projTab = 'overview'; self._timelineEditId = null; renderPage('project'); } });
       var cv = document.getElementById('custOverlay');
       if (cv) cv.addEventListener('click', function (e) { if (e.target.id === 'custOverlay') { self._custDetailId = null; renderPage('project'); } });
       // 客户搜索（保留焦点与光标）
