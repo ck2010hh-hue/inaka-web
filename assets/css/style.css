@@ -759,3 +759,20 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .memo-detail-photos { display: flex; flex-direction: column; gap: 10px; }
 .memo-detail-photo { width: 100%; border-radius: 10px; border: 1px solid var(--line); }
 .memo-detail .detail-section { gap: 6px; }
+
+/* ===================== ciroa 中国线下拓展（一级板块预览）===================== */
+.nav-item.core { background: rgba(214,40,40,.18); color: #fff; box-shadow: inset 3px 0 0 var(--accent); }
+.nav-item.core:hover { background: rgba(214,40,40,.30); color: #fff; }
+.nav-item.core.active { background: var(--accent); box-shadow: none; }
+.nav-item.core .label { font-weight: 600; }
+
+.ciroa-preview-banner { margin: 0 0 16px; padding: 10px 14px; border-radius: 10px;
+  background: rgba(214,40,40,.08); border: 1px dashed rgba(214,40,40,.45); color: var(--ink-soft); font-size: 13px; }
+.ciroa-page { width: 100%; }
+.ciroa-tabs { margin: 4px 0 14px; }
+.ciroa-body { width: 100%; }
+/* 整页铺满：客户跟进看板/表格不再受 760px 弹窗限制，信息密集也能一屏多看 */
+.ciroa-body .cust-board { grid-template-columns: repeat(3, 1fr); }
+.ciroa-body .cust-table-wrap { overflow-x: auto; }
+@media (max-width: 1000px) { .ciroa-body .cust-board { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .ciroa-body .cust-board { grid-template-columns: 1fr; } }

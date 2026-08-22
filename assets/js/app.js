@@ -379,6 +379,7 @@
 
   // ---- 项目 ----
   var PROJECT_CATS = ['品牌合作', '客户合作', '市场与分析'];
+  var CIROA_PROJECT_NAME = 'ciroa中国线下拓展';
   var PROJECT_STATUS = { doing: '进行中', done: '已完成', pause: '暂停' };
   // 旧类别映射：兼容历史数据，统一归到新的三类
   var PROJECT_CAT_MAP = { '市场和分析': '市场与分析', '市场和其他分析': '市场与分析', '其他': '市场与分析' };
@@ -422,7 +423,12 @@
     _custAttr: '',
     _custSearch: '',
     _timelineEditId: null,
+    _renderKey: 'project',
+    _ownerKey: 'project',
     render: function (s) {
+      Project._renderKey = 'project';
+      // 从 ciroa 一级板块返回「项目」时，清掉其临时占用的明细态，避免误带出 ciroa 项目弹窗
+      if (Project._ownerKey === 'ciroa') { Project._detailId = null; Project._custDetailId = null; Project._ownerKey = 'project'; }
       return section('项目', '渠道 / 品牌 / 合作进展', '') +
         this.renderForm(s) +
         this.renderList(s) +
@@ -720,12 +726,12 @@
         });
         saveRender();
       },
-      projTab: function (el) { Project._projTab = el.dataset.t; renderPage('project'); },
-      custAttr: function (el) { Project._custAttr = el.dataset.v; renderPage('project'); },
-      custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage('project'); },
-      custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage('project'); },
-      custBoardBack: function () { Project._custStage = null; Project._custCompact = false; renderPage('project'); },
-      custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage('project'); },
+      projTab: function (el) { Project._projTab = el.dataset.t; renderPage(Project._renderKey); },
+      custAttr: function (el) { Project._custAttr = el.dataset.v; renderPage(Project._renderKey); },
+      custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage(Project._renderKey); },
+      custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage(Project._renderKey); },
+      custBoardBack: function () { Project._custStage = null; Project._custCompact = false; renderPage(Project._renderKey); },
+      custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage(Project._renderKey); },
       importCustTemplate: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
         var tpl = (window.CIROA_CUSTOMERS || []);
@@ -754,10 +760,10 @@
         p.customers.unshift({ id: S.uid(), name: '', person: '', owner: '史霖', stage: '跟进中', status: '已建联沟通中', attr: '代理商/经销商', timeline: [], created: now, updatedAt: now });
         p.updatedAt = now;
         Project._custDetailId = p.customers[0].id;
-        renderPage('project');
+        renderPage(Project._renderKey);
       },
-      openCust: function (el) { Project._custDetailId = el.dataset.id; renderPage('project'); },
-      closeCust: function () { Project._custDetailId = null; renderPage('project'); },
+      openCust: function (el) { Project._custDetailId = el.dataset.id; renderPage(Project._renderKey); },
+      closeCust: function () { Project._custDetailId = null; renderPage(Project._renderKey); },
       saveCust: function (el) {
         var id = el.dataset.id || Project._custDetailId; if (!id) return;
         var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
@@ -833,7 +839,7 @@
         saveRender();
         toast('已添加');
       },
-      editProjectTimeline: function (el) { Project._timelineEditId = el.dataset.id; renderPage('project'); },
+      editProjectTimeline: function (el) { Project._timelineEditId = el.dataset.id; renderPage(Project._renderKey); },
       saveProjectTimeline: function (el) {
         var id = el.dataset.id; if (!id) return;
         var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
@@ -848,7 +854,7 @@
         saveRender();
         toast('已保存');
       },
-      cancelProjectTimeline: function () { Project._timelineEditId = null; renderPage('project'); },
+      cancelProjectTimeline: function () { Project._timelineEditId = null; renderPage(Project._renderKey); },
       delProjectTimeline: function (el) {
         var id = el.dataset.id; if (!id) return;
         if (!ask('删除该沟通记录？')) return;
@@ -861,12 +867,13 @@
       },
       openProject: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.id; }); if (!p) return;
+        Project._ownerKey = 'project';
         Project._detailId = el.dataset.id; Project._projTab = 'overview'; Project._custStage = null; Project._custCompact = false;
         p.lastAccessed = Date.now();
         S.save(false);
-        renderPage('project');
+        renderPage(Project._renderKey);
       },
-      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._custCompact = false; Project._projTab = 'overview'; Project._timelineEditId = null; renderPage('project'); },
+      closeProject: function () { Project._detailId = null; Project._custStage = null; Project._custCompact = false; Project._projTab = 'overview'; Project._timelineEditId = null; renderPage(Project._renderKey); },
       saveProject: function () {
         var id = Project._detailId; if (!id) return;
         var p = state.project.find(function (x) { return x.id === id; }); if (!p) return;
@@ -909,15 +916,15 @@
     onRender: function () {
       var self = this;
       var ov = document.getElementById('projectOverlay');
-      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'projectOverlay') { self._detailId = null; self._custStage = null; self._projTab = 'overview'; self._timelineEditId = null; renderPage('project'); } });
+      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'projectOverlay') { self._detailId = null; self._custStage = null; self._projTab = 'overview'; self._timelineEditId = null; renderPage(Project._renderKey); } });
       var cv = document.getElementById('custOverlay');
-      if (cv) cv.addEventListener('click', function (e) { if (e.target.id === 'custOverlay') { self._custDetailId = null; renderPage('project'); } });
+      if (cv) cv.addEventListener('click', function (e) { if (e.target.id === 'custOverlay') { self._custDetailId = null; renderPage(Project._renderKey); } });
       // 客户搜索（保留焦点与光标）
       var csearch = document.getElementById('custSearch');
       if (csearch) {
         csearch.addEventListener('input', function () {
           self._custSearch = csearch.value;
-          renderPage('project');
+          renderPage(Project._renderKey);
           var next = document.getElementById('custSearch');
           if (next) { next.focus(); next.setSelectionRange(csearch.value.length, csearch.value.length); }
         });
@@ -1520,7 +1527,7 @@
       goProject: function (el) {
         Contacts._detailId = null;
         Project._detailId = el.dataset.id;
-        renderPage('project');
+        renderPage(Project._renderKey);
       },
       saveContact: function () {
         var id = Contacts._detailId; if (!id) return;
@@ -2473,14 +2480,50 @@
   };
 
   /* ================= 模块注册 ================= */
-  var modules = [Focus, Todo, Project, Strategy, Contacts, Notes, Habit, Finance, Memo];
+  // ---- ciroa 中国线下拓展（核心主业务，一级板块预览）----
+  // 复用 Project 模块对「ciroa中国线下拓展」项目的概况 + 客户跟进渲染，但整页铺满（不套 760px 弹窗），
+  // 客户跟进信息多、操作频繁，全宽更顺手。项目模块本身不受影响（ciroa 仍保留在「项目」里）。
+  var Ciroa = {
+    key: 'ciroa', label: 'ciroa线下', icon: '◈',
+    render: function (s) {
+      var p = s.project.find(function (x) { return x.name === CIROA_PROJECT_NAME; });
+      Project._detailId = p ? p.id : null;
+      Project._ownerKey = 'ciroa';
+      Project._renderKey = 'ciroa';
+      if (!p) {
+        return section('ciroa中国线下拓展', '核心主业务', '') +
+          '<div class="card"><div class="empty">尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。</div></div>';
+      }
+      var tabs = '<div class="detail-tabs ciroa-tabs">' +
+        '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">概况</button>' +
+        '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
+        '</div>';
+      var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderOverviewTab(s, p);
+      var banner = '<div class="ciroa-preview-banner">预览版 · 此板块由「项目 → ciroa中国线下拓展」自动同步，布局确认后将正式迁移（届时从「项目」中移出，避免重复）</div>';
+      return section('ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') + banner +
+        '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
+        Project.renderCustOverlay(s);
+    },
+    // 直接复用 Project 的客户/概况交互逻辑（这些 act 内部都用显式 Project._xxx，不依赖 this）
+    acts: Project.acts,
+    onRender: function () {
+      var cv = document.getElementById('custOverlay');
+      if (cv) cv.addEventListener('click', function (e) {
+        if (e.target.id === 'custOverlay') { Project._custDetailId = null; renderPage(Project._renderKey); }
+      });
+    }
+  };
+
+  var modules = [Focus, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
   var byKey = {};
   modules.forEach(function (m) { byKey[m.key] = m; });
 
   /* ================= 渲染 / 路由 ================= */
   function renderNav() {
     navEl.innerHTML = modules.map(function (m) {
-      return '<button class="nav-item ' + (m.key === currentKey ? 'active' : '') + '" data-nav="' + m.key + '">' +
+      var core = m.key === 'ciroa' ? ' core' : '';
+      var active = m.key === currentKey ? ' active' : '';
+      return '<button class="nav-item ' + active + core + '" data-nav="' + m.key + '">' +
         '<span class="ico">' + m.icon + '</span><span class="label">' + m.label + '</span></button>';
     }).join('');
   }
