@@ -125,6 +125,7 @@
     _expand: {},
     _filter: { type: '', attr: '', project: '' },
     _detailId: null,
+    _doneExpanded: false,
     _DIMS: [
       { key: 'type', label: '类型' },
       { key: 'attr', label: '属性' },
@@ -221,9 +222,32 @@
     },
     renderList: function (items, s) {
       var self = this;
-      return items.length ? items.map(function (t) {
-        return self.renderItem(t);
-      }).join('') : '<div class="empty">该归属下暂无待办</div>';
+      var filter = this._f || 'all';
+      if (!items.length) return '<div class="empty">该归属下暂无待办</div>';
+      var active = items.filter(function (t) { return !t.done; })
+        .sort(function (a, b) { return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0); });
+      var done = items.filter(function (t) { return t.done; })
+        .sort(function (a, b) { return (b.completedAt || b.updatedAt || b.createdAt || 0) - (a.completedAt || a.updatedAt || a.createdAt || 0); });
+
+      var html = '';
+      if (active.length) {
+        html += active.map(function (t) { return self.renderItem(t); }).join('');
+      } else if (filter !== 'done') {
+        html += '<div class="empty">暂无进行中的待办</div>';
+      }
+      if (filter === 'all' && done.length) {
+        var expanded = self._doneExpanded;
+        html += '<div class="todo-done-bar" data-act="toggleDoneExpand">' +
+          '<span class="todo-done-label">已完成 (' + done.length + ')</span>' +
+          '<span class="todo-done-arrow">' + (expanded ? '▲' : '▼') + '</span>' +
+          '</div>';
+        if (expanded) {
+          html += '<div class="todo-done-list">' + done.map(function (t) { return self.renderItem(t); }).join('') + '</div>';
+        }
+      } else if (filter === 'done' && done.length) {
+        html += done.map(function (t) { return self.renderItem(t); }).join('');
+      }
+      return html;
     },
     renderItem: function (t) {
       var tags = '';
@@ -237,6 +261,7 @@
         '<div class="meta">' + tags + (t.completedAt ? ' · 完成 ' + fmtDate(t.completedAt) : '') +
         '<span class="todo-created" title="创建时间">' + fmtDate(t.createdAt) + '</span></div></div>' +
         '<div class="todo-actions">' +
+        '<button class="x edit" data-act="edit" data-id="' + t.id + '" data-stop>✎</button>' +
         '<button class="x" data-act="del" data-id="' + t.id + '" data-stop>✕</button></div></div>';
     },
     renderOverlay: function (s) {
@@ -271,13 +296,14 @@
     acts: {
       add: function () {
         var v = document.getElementById('todoText').value.trim(); if (!v) return;
+        var now = Date.now();
         state.todo.unshift({
           id: S.uid(), text: v,
           tab: document.getElementById('todoTab').value,
           sub: document.getElementById('todoSub').value,
           attr: [document.getElementById('todoAttr').value],
           project: document.getElementById('todoProj').value || '无',
-          createdAt: Date.now(), completedAt: null, done: false, subs: []
+          createdAt: now, updatedAt: now, completedAt: null, done: false, subs: []
         });
         saveRender();
       },
@@ -303,6 +329,8 @@
       },
       clearFilter: function () { Todo._filter = { type: '', attr: '', project: '' }; renderPage('todo'); },
       openTodo: function (el) { Todo._detailId = el.dataset.id; renderPage('todo'); },
+      edit: function (el) { Todo._detailId = el.dataset.id; renderPage('todo'); },
+      toggleDoneExpand: function () { Todo._doneExpanded = !Todo._doneExpanded; renderPage('todo'); },
       closeDetail: function () { Todo._detailId = null; renderPage('todo'); },
       saveTodo: function () {
         var id = Todo._detailId; if (!id) return;
