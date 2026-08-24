@@ -445,7 +445,9 @@
     },
     renderList: function (s) {
       var self = this;
-      if (!s.project.length) return '<div class="empty">还没有项目，创建一个 ↓</div>';
+      // 正式迁移：ciroa中国线下拓展 已作为一级板块独立展示，这里从「项目」看板隐藏，避免两块重复
+      var projects = s.project.filter(function (p) { return p.name !== CIROA_PROJECT_NAME; });
+      if (!projects.length) return '<div class="empty">还没有项目，创建一个 ↓</div>';
       function card(p) {
         var stCls = p.status === 'done' ? 'green' : (p.status === 'pause' ? 'gray' : 'blue');
         var stTxt = PROJECT_STATUS[p.status] || p.status || '进行中';
@@ -468,7 +470,7 @@
           '</div>';
       }
       function col(name, key) {
-        var list = sortProjects(s.project.filter(function (p) { return (p.cat || '') === key; }));
+        var list = sortProjects(projects.filter(function (p) { return (p.cat || '') === key; }));
         return '<div class="project-col">' +
           '<div class="project-col-head"><span class="project-col-dot"></span>' + esc(name) + ' <span class="count">' + list.length + '</span></div>' +
           '<div class="project-col-cards">' + (list.length ? list.map(card).join('') : '<div class="empty sm">暂无项目</div>') + '</div>' +
@@ -2480,9 +2482,9 @@
   };
 
   /* ================= 模块注册 ================= */
-  // ---- ciroa 中国线下拓展（核心主业务，一级板块预览）----
+  // ---- ciroa 中国线下拓展（核心主业务，一级板块）----
   // 复用 Project 模块对「ciroa中国线下拓展」项目的概况 + 客户跟进渲染，但整页铺满（不套 760px 弹窗），
-  // 客户跟进信息多、操作频繁，全宽更顺手。项目模块本身不受影响（ciroa 仍保留在「项目」里）。
+  // 客户跟进信息多、操作频繁，全宽更顺手。该项目已从「项目」看板隐藏，单独作为一级板块，避免重复。
   var Ciroa = {
     key: 'ciroa', label: 'ciroa线下', icon: '◈',
     render: function (s) {
@@ -2499,8 +2501,7 @@
         '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
         '</div>';
       var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderOverviewTab(s, p);
-      var banner = '<div class="ciroa-preview-banner">预览版 · 此板块由「项目 → ciroa中国线下拓展」自动同步，布局确认后将正式迁移（届时从「项目」中移出，避免重复）</div>';
-      return section('ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') + banner +
+      return section('ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
         '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
         Project.renderCustOverlay(s);
     },
