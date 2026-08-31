@@ -170,6 +170,8 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .col-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .col-dot.blue { background: var(--blue); }
 .col-dot.amber { background: var(--accent); }
+.col-dot.green { background: var(--green); }
+.col-dot.gray { background: #9aa0a6; }
 .todo-item { border-left: 4px solid transparent; }
 .todo-item.wanlan { border-left-color: var(--blue); }
 .todo-item.tianyi { border-left-color: var(--accent); }
@@ -582,7 +584,7 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* 客户看板（三阶段） */
-.cust-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+.cust-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-items: start; }
 .cust-col { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px; max-height: 64vh; overflow-y: auto; }
 .cust-col .col-head { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 12px; font-size: 15px; position: sticky; top: -14px; background: var(--bg); padding-top: 2px; }
 .cust-col .count { font-size: 12px; color: var(--ink-soft); font-weight: 400; background: #fff; padding: 1px 7px; border-radius: 20px; border: 1px solid var(--line); }
@@ -772,7 +774,7 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ciroa-tabs { margin: 4px 0 14px; }
 .ciroa-body { width: 100%; }
 /* 整页铺满：客户跟进看板/表格不再受 760px 弹窗限制，信息密集也能一屏多看 */
-.ciroa-body .cust-board { grid-template-columns: repeat(3, 1fr); }
+.ciroa-body .cust-board { grid-template-columns: repeat(4, 1fr); }
 .ciroa-body .cust-table-wrap { overflow-x: auto; }
 @media (max-width: 1000px) { .ciroa-body .cust-board { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .ciroa-body .cust-board { grid-template-columns: 1fr; } }

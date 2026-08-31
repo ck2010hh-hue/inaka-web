@@ -402,8 +402,8 @@
     return dirty;
   }
   // 客户跟进（CRM 看板）可选项
-  var CUST_STAGES = ['已合作', '跟进中', '仅建联未沟通'];
-  var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '仅建联未沟通': 'gray' };
+  var CUST_STAGES = ['已合作', '跟进中', '已建联等时机', '仅建联未沟通'];
+  var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
   var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商', 'KA卖场'];
   var CUST_STATUS = ['确认合作已下单', '确认合作未下单', '已建联沟通中', '仅建联未沟通'];
   var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
@@ -568,6 +568,7 @@
         '<div class="stat" data-act="custStat" data-v="all"><div class="n">' + all.length + '</div><div class="l">客户总数</div></div>' +
         '<div class="stat" data-act="custStat" data-v="已合作"><div class="n">' + cnt('已合作') + '</div><div class="l">已合作</div></div>' +
         '<div class="stat" data-act="custStat" data-v="跟进中"><div class="n">' + cnt('跟进中') + '</div><div class="l">跟进中</div></div>' +
+        '<div class="stat" data-act="custStat" data-v="已建联等时机"><div class="n">' + cnt('已建联等时机') + '</div><div class="l">已建联等时机</div></div>' +
         '<div class="stat" data-act="custStat" data-v="仅建联未沟通"><div class="n">' + cnt('仅建联未沟通') + '</div><div class="l">仅建联未沟通</div></div>' +
         '</div>';
       // 顶部统计标签进入的精简纵向列表（快速一览）
