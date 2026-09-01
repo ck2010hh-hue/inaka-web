@@ -505,7 +505,6 @@
   var CUST_STAGES = ['已合作', '跟进中', '已建联等时机', '仅建联未沟通'];
   var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
   var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商', 'KA卖场'];
-  var CUST_STATUS = ['确认合作已下单', '确认合作未下单', '已建联沟通中', '仅建联未沟通'];
   var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
   var CUST_POTENTIAL = ['大', '中', '小'];
   var CUST_POT_CLASS = { '大': 'potential-big', '中': 'potential-mid', '小': 'potential-small' };
@@ -741,7 +740,6 @@
           '<td>' + esc(c.owner || '') + '</td>' +
           '<td>' + esc(c.person || '') + '</td>' +
           '<td>' + esc(c.stage || '') + '</td>' +
-          '<td>' + esc(c.status || '') + '</td>' +
           '<td>' + esc(c.attr || '') + '</td>' +
           '<td>' + esc(c.channel || '') + '</td>' +
           '<td>' + esc(c.region || '') + '</td>' +
@@ -750,7 +748,7 @@
           '</tr>';
       }).join('');
       return '<div class="cust-table-wrap"><table class="list-table cust-table"><thead><tr>' +
-        '<th>客户公司</th><th>负责人</th><th>联系人</th><th>阶段</th><th>状态</th><th>属性</th><th>渠道</th><th>区域</th><th>潜力</th><th>最新进展</th>' +
+        '<th>客户公司</th><th>负责人</th><th>联系人</th><th>阶段</th><th>属性</th><th>渠道</th><th>区域</th><th>潜力</th><th>最新进展</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>';
     },
     renderCustOverlay: function (s) {
@@ -772,7 +770,6 @@
         '<div class="detail-body cust-detail-body"><div>' +
         '<div class="detail-section"><label>客户公司 / 名称</label><input class="input" id="cName" value="' + esc(c.name || '') + '"></div>' +
         '<div class="detail-section"><label>阶段</label><select class="select" id="cStage">' + opts(CUST_STAGES, c.stage) + '</select></div>' +
-        '<div class="detail-section"><label>合作状态</label><select class="select" id="cStatus">' + opts(CUST_STATUS, c.status) + '</select></div>' +
         '<div class="detail-section"><label>客户属性</label><select class="select" id="cAttr">' + opts(CUST_ATTRS, c.attr) + '</select></div>' +
         '<div class="detail-section"><label>渠道类型</label><select class="select" id="cChannel">' + opts(CUST_CHANNELS, c.channel) + '</select></div>' +
         '<div class="detail-section"><label>覆盖区域</label><input class="input" id="cRegion" value="' + esc(c.region || '') + '"></div>' +
@@ -845,7 +842,7 @@
           p.customers.push({
             id: S.uid(), name: c.name, person: c.person || '', phone: c.phone || '',
             attr: c.attr || '', channel: c.channel || '', region: c.region || '', outlets: c.outlets || '',
-            mode: c.mode || '', sample: c.sample || '', visited: c.visited || '', status: c.status || '已建联沟通中',
+            mode: c.mode || '', sample: c.sample || '', visited: c.visited || '',
             stage: c.stage || '跟进中', price: c.price || '', firstDate: c.firstDate || '', amount: c.amount || '',
             progress: c.progress || '', category: c.category || '', connectDate: c.connectDate || '',
             repurchase: c.repurchase || '', potential: c.potential || '', owner: c.owner || '史霖',
@@ -860,7 +857,7 @@
         var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
         p.customers = p.customers || [];
         var now = Date.now();
-        p.customers.unshift({ id: S.uid(), name: '', person: '', owner: '史霖', stage: '跟进中', status: '已建联沟通中', attr: '代理商/经销商', timeline: [], created: now, updatedAt: now });
+        p.customers.unshift({ id: S.uid(), name: '', person: '', owner: '史霖', stage: '跟进中', attr: '代理商/经销商', timeline: [], created: now, updatedAt: now });
         p.updatedAt = now;
         Project._custDetailId = p.customers[0].id;
         renderPage(Project._renderKey);
@@ -875,7 +872,6 @@
         if (!name) { toast('客户名称不能为空'); return; }
         c.name = name;
         c.stage = document.getElementById('cStage').value;
-        c.status = document.getElementById('cStatus').value;
         c.attr = document.getElementById('cAttr').value;
         c.channel = document.getElementById('cChannel').value;
         c.region = document.getElementById('cRegion').value.trim();
