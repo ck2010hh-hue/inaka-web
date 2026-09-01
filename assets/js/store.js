@@ -20,7 +20,8 @@
   /* ---------- 默认状态结构（兼容现有备份 + 新增板块） ---------- */
   function defaultState() {
     return {
-      // 聚焦：{ "2026-08-10": [{id, text, done}] }
+      // 日历（键名沿用 focus，跨端旧版客户端也在读写，改名会导致两端数据分裂）：
+      // { "2026-08-10": [{id, text, time('HH:MM'|''), cat('工作'|'生活'), done, updatedAt}] }
       focus: {},
       // 待办
       todo: [],

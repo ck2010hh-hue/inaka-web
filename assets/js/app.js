@@ -49,67 +49,162 @@
 
   /* ================= 各板块 ================= */
 
-  // ---- 聚焦 ----
-  var Focus = {
-    key: 'focus', label: '聚焦', icon: '◎',
-    _editId: null,
+  // ---- 日历 ----
+  // 存储沿用 state.focus[date]：跨端旧版客户端也在读写这个键，改名会造成两端数据分裂，勿动。
+  // 条目结构：{ id, text, time('HH:MM'，可空), cat('工作'|'生活'), done, updatedAt }
+  var CAL_CATS = ['工作', '生活'];
+  function calCatOf(it) { return it.cat === '生活' ? '生活' : '工作'; }
+  function calCls(c) { return c === '生活' ? 'life' : 'work'; }
+  function calYmd(d) {
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  }
+  function calYmOf(s) { return String(s || '').slice(0, 7); }
+  function calShiftYm(ym, delta) {
+    var d = new Date(+ym.slice(0, 4), +ym.slice(5, 7) - 1 + delta, 1);
+    return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+  }
+  // 月历格子：周一为一周起点，前后补齐整周
+  // 注意：打卡(Habit)模块另有一个同名 monthCells，这里必须加 cal 前缀，否则函数提升会互相覆盖
+  function calMonthCells(ym) {
+    var y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    var lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+    var days = new Date(y, m, 0).getDate();
+    var prevDays = new Date(y, m - 1, 0).getDate();
+    var cells = [], i;
+    for (i = lead; i > 0; i--) cells.push({ d: calYmd(new Date(y, m - 2, prevDays - i + 1)), out: true });
+    for (i = 1; i <= days; i++) cells.push({ d: calYmd(new Date(y, m - 1, i)), out: false });
+    while (cells.length % 7) cells.push({ d: '', out: true, blank: true });
+    return cells;
+  }
+  // 同一天内按时间排序；无时间的排在最后，再按创建/修改顺序
+  function calSortEvents(list) {
+    return (list || []).slice().sort(function (a, b) {
+      var ta = a.time || '99:99', tb = b.time || '99:99';
+      if (ta !== tb) return ta < tb ? -1 : 1;
+      return (a.updatedAt || 0) - (b.updatedAt || 0);
+    });
+  }
+
+  var Calendar = {
+    key: 'focus', label: '日历', icon: '▦',
+    _ym: null, _sel: null, _cat: '工作', _editId: null,
+    _ensure: function () {
+      if (!this._sel) this._sel = today();
+      if (!this._ym) this._ym = calYmOf(this._sel);
+    },
     render: function (s) {
-      var date = today();
-      var list = (s.focus[date] || []);
+      var self = this;
+      this._ensure();
+      var t = today();
+      var dow = ['一', '二', '三', '四', '五', '六', '日'];
+      var grid = '<div class="cal-grid">' + dow.map(function (w) {
+        return '<div class="cal-dow">' + w + '</div>';
+      }).join('') + calMonthCells(this._ym).map(function (c) {
+        if (c.blank) return '<div class="cal-cell blank"></div>';
+        var list = s.focus[c.d] || [];
+        var dots = list.slice(0, 3).map(function (it) {
+          return '<i class="cal-dot ' + calCls(calCatOf(it)) + '"></i>';
+        }).join('');
+        var cls = 'cal-cell' + (c.out ? ' out' : '') + (c.d === t ? ' today' : '') + (c.d === self._sel ? ' sel' : '');
+        return '<div class="' + cls + '" data-act="calPick" data-d="' + c.d + '">' +
+          '<span class="cal-num">' + (+c.d.slice(8)) + '</span>' +
+          '<span class="cal-dots">' + dots + '</span></div>';
+      }).join('') + '</div>';
+
+      var head = '<div class="card"><div class="cal-head">' +
+        '<button class="btn sm ghost" data-act="calPrev" title="上个月">‹</button>' +
+        '<div class="cal-title">' + (+this._ym.slice(0, 4)) + ' 年 ' + (+this._ym.slice(5, 7)) + ' 月</div>' +
+        '<button class="btn sm ghost" data-act="calNext" title="下个月">›</button>' +
+        '<button class="btn sm ghost" data-act="calToday">今天</button></div>' + grid +
+        '<div class="cal-legend"><span><i class="cal-dot work"></i>工作</span>' +
+        '<span><i class="cal-dot life"></i>生活</span></div></div>';
+
+      var list = calSortEvents(s.focus[this._sel] || []);
       var items = list.length ? list.map(function (it) {
-        if (Focus._editId === it.id) {
-          return '<div class="item">' +
-            '<input class="input" id="focusEdit" value="' + esc(it.text) + '">' +
-            '<button class="x edit" data-act="saveFocusEdit" data-id="' + it.id + '" title="保存">✓</button>' +
-            '<button class="x" data-act="cancelFocusEdit" title="取消">✕</button></div>';
+        if (self._editId === it.id) {
+          return '<div class="item editing">' +
+            '<input class="input cal-t" id="calEditTime" type="time" value="' + esc(it.time || '') + '">' +
+            '<input class="input" id="calEditInput" value="' + esc(it.text) + '">' +
+            '<button class="x edit" data-act="saveCalEdit" data-id="' + it.id + '" title="保存">✓</button>' +
+            '<button class="x" data-act="cancelCalEdit" title="取消">✕</button></div>';
         }
+        var c = calCatOf(it);
         return '<div class="item ' + (it.done ? 'done' : '') + '">' +
           '<div class="check ' + (it.done ? 'on' : '') + '" data-act="toggle" data-id="' + it.id + '">' + (it.done ? '✓' : '') + '</div>' +
+          '<span class="cal-time">' + esc(it.time || '') + '</span>' +
+          '<span class="tag ' + (c === '生活' ? 'green' : 'blue') + '">' + c + '</span>' +
           '<div class="body"><div class="title">' + esc(it.text) + '</div></div>' +
-          '<button class="x edit" data-act="editFocus" data-id="' + it.id + '" title="编辑">✎</button>' +
+          '<button class="x edit" data-act="editCal" data-id="' + it.id + '" title="编辑">✎</button>' +
           '<button class="x" data-act="del" data-id="' + it.id + '">✕</button></div>';
-      }).join('') : '<div class="empty">今天还没有聚焦目标，加一个 ↓</div>';
-      return section('聚焦', '今天的 3 件要事', '') +
-        '<div class="card"><div class="row-between" style="margin-bottom:10px">' +
-        '<div class="field" style="margin:0;flex:1"><label>日期</label>' +
-        '<input class="input" id="focusDate" type="date" value="' + date + '"></div></div>' +
-        '<div class="row-between"><input class="input" id="focusInput" placeholder="今天最想推进的一件事…" style="flex:1;margin-right:8px">' +
-        '<button class="btn" data-act="add">添加</button></div></div>' +
-        '<div class="card"><h2>当日聚焦</h2>' + items + '</div>';
+      }).join('') : '<div class="empty">这一天还没有日程</div>';
+      var dayCard = '<div class="card"><h2>' + this._sel + ' 的日程</h2>' + items + '</div>';
+
+      var form = '<div class="card"><h2>添加日程</h2><div class="cal-form">' +
+        '<div class="field"><label>日期</label><input class="input" id="calDate" type="date" value="' + this._sel + '"></div>' +
+        '<div class="field"><label>时间（可选）</label><input class="input" id="calTime" type="time"></div>' +
+        '<div class="field cal-cat"><label>分类</label><div class="cal-seg">' + CAL_CATS.map(function (c) {
+          return '<button class="seg ' + calCls(c) + (self._cat === c ? ' on' : '') + '" data-act="calCatPick" data-v="' + c + '">' + c + '</button>';
+        }).join('') + '</div></div>' +
+        '<div class="row-between"><input class="input" id="calInput" placeholder="写点什么…" style="flex:1;margin-right:8px">' +
+        '<button class="btn" data-act="add">添加</button></div></div></div>';
+
+      return section('日历', '工作 / 生活 一屏看清', '') + head + dayCard + form;
     },
     acts: {
+      calPrev: function () { Calendar._ym = calShiftYm(Calendar._ym, -1); Calendar._editId = null; renderPage('focus'); },
+      calNext: function () { Calendar._ym = calShiftYm(Calendar._ym, 1); Calendar._editId = null; renderPage('focus'); },
+      calToday: function () {
+        var t = today();
+        Calendar._sel = t; Calendar._ym = calYmOf(t); Calendar._editId = null; renderPage('focus');
+      },
+      calPick: function (el) {
+        var d = el.dataset.d; if (!d) return;
+        Calendar._sel = d; Calendar._ym = calYmOf(d); Calendar._editId = null; renderPage('focus');
+      },
+      calCatPick: function (el) { Calendar._cat = el.dataset.v; renderPage('focus'); },
       add: function () {
-        var inp = document.getElementById('focusInput');
-        var d = document.getElementById('focusDate').value || today();
-        var v = inp.value.trim(); if (!v) return;
+        var inp = document.getElementById('calInput');
+        var v = inp ? inp.value.trim() : ''; if (!v) return;
+        var dEl = document.getElementById('calDate');
+        var tEl = document.getElementById('calTime');
+        var d = (dEl && dEl.value) || Calendar._sel || today();
         state.focus[d] = state.focus[d] || [];
-        state.focus[d].push({ id: S.uid(), text: v, done: false, updatedAt: Date.now() });
+        state.focus[d].push({
+          id: S.uid(), text: v, time: (tEl && tEl.value) || '',
+          cat: Calendar._cat, done: false, updatedAt: Date.now()
+        });
+        Calendar._sel = d; Calendar._ym = calYmOf(d);
         saveRender();
       },
       toggle: function (el) {
-        var d = document.getElementById('focusDate').value || today();
-        var arr = state.focus[d] || [];
-        var it = arr.find(function (x) { return x.id === el.dataset.id; });
+        var it = (state.focus[Calendar._sel] || []).find(function (x) { return x.id === el.dataset.id; });
         if (it) { it.done = !it.done; it.updatedAt = Date.now(); saveRender(); }
       },
-      editFocus: function (el) { Focus._editId = el.dataset.id; renderPage('focus'); },
-      saveFocusEdit: function (el) {
-        var inp = document.getElementById('focusEdit'); if (!inp) return;
+      editCal: function (el) { Calendar._editId = el.dataset.id; renderPage('focus'); },
+      saveCalEdit: function (el) {
+        var inp = document.getElementById('calEditInput'); if (!inp) return;
         var v = inp.value.trim(); if (!v) return;
-        var d = document.getElementById('focusDate').value || today();
-        var it = (state.focus[d] || []).find(function (x) { return x.id === el.dataset.id; });
-        if (it) { it.text = v; it.updatedAt = Date.now(); }
-        Focus._editId = null; saveRender();
+        var it = (state.focus[Calendar._sel] || []).find(function (x) { return x.id === el.dataset.id; });
+        if (it) {
+          it.text = v;
+          var tm = document.getElementById('calEditTime');
+          if (tm) it.time = tm.value || '';
+          it.updatedAt = Date.now();
+        }
+        Calendar._editId = null; saveRender();
       },
-      cancelFocusEdit: function () { Focus._editId = null; renderPage('focus'); },
+      cancelCalEdit: function () { Calendar._editId = null; renderPage('focus'); },
       del: function (el) {
-        var d = document.getElementById('focusDate').value || today();
-        state.focus[d] = (state.focus[d] || []).filter(function (x) { return x.id !== el.dataset.id; });
-        if (Focus._editId === el.dataset.id) Focus._editId = null;
+        if (!ask('删除这条日程？')) return;
+        state.focus[Calendar._sel] = (state.focus[Calendar._sel] || []).filter(function (x) { return x.id !== el.dataset.id; });
+        if (Calendar._editId === el.dataset.id) Calendar._editId = null;
         saveRender();
       }
     },
-    onDate: function () { renderPage('focus'); }
+    onDate: function () {
+      var el = document.getElementById('calDate');
+      if (el && el.value) { Calendar._sel = el.value; Calendar._ym = calYmOf(el.value); Calendar._editId = null; renderPage('focus'); }
+    }
   };
 
   // ---- 待办 ----
@@ -2516,7 +2611,7 @@
     }
   };
 
-  var modules = [Focus, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
+  var modules = [Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
   var byKey = {};
   modules.forEach(function (m) { byKey[m.key] = m; });
 
@@ -2550,9 +2645,9 @@
     var mod = byKey[currentKey];
     if (mod && mod.acts && mod.acts[t.dataset.act]) mod.acts[t.dataset.act](t);
   });
-  // 事件委托：日期切换（聚焦）
+  // 事件委托：日期切换（日历的日期输入框）
   pageHost.addEventListener('change', function (e) {
-    if (e.target.id === 'focusDate' && currentKey === 'focus') { if (Focus.onDate) Focus.onDate(); }
+    if (e.target.id === 'calDate' && currentKey === 'focus') { if (Calendar.onDate) Calendar.onDate(); }
   });
   // 回车提交（聚焦在主输入/金额框时）
   pageHost.addEventListener('keydown', function (e) {
