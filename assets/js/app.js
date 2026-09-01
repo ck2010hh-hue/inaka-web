@@ -101,14 +101,19 @@
         return '<div class="cal-dow">' + w + '</div>';
       }).join('') + calMonthCells(this._ym).map(function (c) {
         if (c.blank) return '<div class="cal-cell blank"></div>';
-        var list = s.focus[c.d] || [];
-        var dots = list.slice(0, 3).map(function (it) {
-          return '<i class="cal-dot ' + calCls(calCatOf(it)) + '"></i>';
+        var list = calSortEvents(s.focus[c.d] || []);
+        var MAX = 3;
+        var rows = list.slice(0, MAX).map(function (it) {
+          return '<div class="cal-evt" title="' + esc(it.text) + '">' +
+            '<i class="cal-dot ' + calCls(calCatOf(it)) + '"></i>' +
+            '<span class="cal-evt-text">' + esc(it.text) + '</span></div>';
         }).join('');
+        var more = list.length - MAX;
+        if (more > 0) rows += '<div class="cal-more">+' + more + '</div>';
         var cls = 'cal-cell' + (c.out ? ' out' : '') + (c.d === t ? ' today' : '') + (c.d === self._sel ? ' sel' : '');
         return '<div class="' + cls + '" data-act="calPick" data-d="' + c.d + '">' +
-          '<span class="cal-num">' + (+c.d.slice(8)) + '</span>' +
-          '<span class="cal-dots">' + dots + '</span></div>';
+          '<div class="cal-num-row"><span class="cal-num">' + (+c.d.slice(8)) + '</span></div>' +
+          '<div class="cal-evts">' + rows + '</div></div>';
       }).join('') + '</div>';
 
       var head = '<div class="card"><div class="cal-head">' +
