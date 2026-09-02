@@ -788,11 +788,6 @@
         '<div class="detail-section"><label>拜访</label><select class="select" id="cVisited">' + opts(['已拜访', '未拜访'], c.visited) + '</select></div>' +
         '<div class="detail-section"><label>客户潜力</label><select class="select" id="cPotential">' + opts(CUST_POTENTIAL, c.potential) + '</select></div>' +
         '<div class="detail-section"><label>合作价格体系</label><input class="input" id="cPrice" value="' + esc(c.price || '') + '"></div>' +
-        '<div class="detail-section"><label>合作品类</label><input class="input" id="cCategory" value="' + esc(c.category || '') + '"></div>' +
-        '<div class="detail-section"><label>建联时间</label><input class="input" id="cConnect" value="' + esc(c.connectDate || '') + '"></div>' +
-        '<div class="detail-section"><label>首单时间 / 预计合作时间</label><input class="input" id="cFirstDate" value="' + esc(c.firstDate || '') + '"></div>' +
-        '<div class="detail-section"><label>首单金额 / 未合作核心问题</label><input class="input" id="cAmount" value="' + esc(c.amount || '') + '"></div>' +
-        '<div class="detail-section"><label>最新进展记录（一句话）</label><input class="input" id="cProgress" value="' + esc(c.progress || '') + '"></div>' +
         '<div class="detail-section"><label>关联人脉</label>' + contactPicker + '</div>' +
         '</div><div class="right-col">' +
         '<div class="detail-section"><label>负责人</label><input class="input" id="cOwner" value="' + esc(c.owner || '') + '"></div>' +
@@ -893,11 +888,6 @@
         c.visited = document.getElementById('cVisited').value;
         c.potential = document.getElementById('cPotential').value;
         c.price = document.getElementById('cPrice').value.trim();
-        c.category = document.getElementById('cCategory').value.trim();
-        c.connectDate = document.getElementById('cConnect').value.trim();
-        c.firstDate = document.getElementById('cFirstDate').value.trim();
-        c.amount = document.getElementById('cAmount').value.trim();
-        c.progress = document.getElementById('cProgress').value.trim();
         c.owner = document.getElementById('cOwner').value.trim();
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
