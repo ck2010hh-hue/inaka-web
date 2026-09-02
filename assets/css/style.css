@@ -840,3 +840,8 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ciroa-body .cust-table-wrap { overflow-x: auto; }
 @media (max-width: 1000px) { .ciroa-body .cust-board { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .ciroa-body .cust-board { grid-template-columns: 1fr; } }
+
+/* 客户编辑 - 关联人脉搜索栏（替代旧下拉） */
+.cust-contact-picker { display: flex; flex-direction: column; gap: 6px; }
+.cust-contact-current { min-height: 28px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cust-contact-current .x { background: none; border: 1px solid var(--line); border-radius: 6px; width: 22px; height: 22px; line-height: 18px; padding: 0; cursor: pointer; color: var(--danger); }

@@ -504,7 +504,7 @@
   // 客户跟进（CRM 看板）可选项
   var CUST_STAGES = ['已合作', '跟进中', '已建联等时机', '仅建联未沟通'];
   var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
-  var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商', 'KA卖场'];
+  var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商'];
   var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
   var CUST_POTENTIAL = ['大', '中', '小'];
   var CUST_POT_CLASS = { '大': 'potential-big', '中': 'potential-mid', '小': 'potential-small' };
@@ -757,10 +757,18 @@
       var c = p && this._custDetailId ? (p.customers || []).find(function (x) { return x.id === self._custDetailId; }) : null;
       if (!c) return '<div class="overlay" id="custOverlay"></div>';
       function opts(arr, sel) { return arr.map(function (o) { return '<option' + (o === sel ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join(''); }
+      var CUST_MODES = ['现采', '试销', '账期'];
       var linkOpts = '<option value="">关联人脉（可选）…</option>' + (s.contacts || []).map(function (ct) {
         var label = ct.company ? ct.company + ' · ' + ct.name : ct.name;
-        return '<option value="' + esc(ct.id) + '"' + (c.contactId === ct.id ? ' selected' : '') + '>' + esc(label) + '</option>';
+        return '<option value="' + esc(ct.id) + '" data-info="' + esc((ct.company || '') + ' ' + (ct.name || '') + ' ' + (ct.role || '') + ' ' + ((ct.brands || '') + ' ' + ((ct.channels || []).join(' ') + ' ' + (ct.location || '')))).toLowerCase() + '"' + (c.contactId === ct.id ? ' selected' : '') + '>' + esc(label) + '</option>';
       }).join('');
+      var linkedContact = c.contactId ? (s.contacts || []).find(function (ct) { return ct.id === c.contactId; }) : null;
+      var linkedLabel = linkedContact ? (linkedContact.company ? linkedContact.company + ' · ' + linkedContact.name : linkedContact.name) : '';
+      var contactPicker = '<div class="cust-contact-picker" data-stop>' +
+        '<div class="cust-contact-current">' + (linkedLabel ? '<span class="tag sm">' + esc(linkedLabel) + '</span> <button class="x" data-act="clearCustContact" title="清除">✕</button>' : '<span class="muted sm">未关联</span>') + '</div>' +
+        '<input class="input" id="custContactSearch" placeholder="搜索公司 / 姓名 / 角色 / 品牌 / 渠道 / 地区…">' +
+        '<select class="select" id="cContact" data-stop>' + linkOpts + '</select>' +
+        '</div>';
       var tl = (c.timeline || []).slice().reverse().map(function (t) {
         return '<div class="timeline-item"><div class="timeline-date">' + fmtDate(t.time) + '</div>' +
           '<div class="timeline-content"><p>' + esc(t.stage || '') + '</p>' + (t.memo ? '<p class="muted" style="margin-top:4px">' + esc(t.memo) + '</p>' : '') +
@@ -769,12 +777,13 @@
       return '<div class="overlay open" id="custOverlay"><div class="detail cust-detail"><div class="detail-head"><div class="detail-title">编辑客户</div><div class="head-actions"><button class="btn ghost danger" data-act="delCust" data-id="' + c.id + '">删除</button><button class="btn ghost" data-act="closeCust">关闭</button></div></div>' +
         '<div class="detail-body cust-detail-body"><div>' +
         '<div class="detail-section"><label>客户公司 / 名称</label><input class="input" id="cName" value="' + esc(c.name || '') + '"></div>' +
+        '<div class="detail-section"><label>客户概况</label><textarea class="textarea" id="cOverview" rows="3" placeholder="公司背景、合作历史、主营渠道、规模等手动补充…">' + esc(c.overview || '') + '</textarea></div>' +
         '<div class="detail-section"><label>阶段</label><select class="select" id="cStage">' + opts(CUST_STAGES, c.stage) + '</select></div>' +
         '<div class="detail-section"><label>客户属性</label><select class="select" id="cAttr">' + opts(CUST_ATTRS, c.attr) + '</select></div>' +
         '<div class="detail-section"><label>渠道类型</label><select class="select" id="cChannel">' + opts(CUST_CHANNELS, c.channel) + '</select></div>' +
         '<div class="detail-section"><label>覆盖区域</label><input class="input" id="cRegion" value="' + esc(c.region || '') + '"></div>' +
         '<div class="detail-section"><label>渠道名及网点数</label><input class="input" id="cOutlets" value="' + esc(c.outlets || '') + '"></div>' +
-        '<div class="detail-section"><label>合作模式</label><select class="select" id="cMode">' + opts(['现采', '试销', '无'], c.mode) + '</select></div>' +
+        '<div class="detail-section"><label>合作模式</label><select class="select" id="cMode">' + opts(CUST_MODES, c.mode) + '</select></div>' +
         '<div class="detail-section"><label>寄样</label><select class="select" id="cSample">' + opts(['有', '无'], c.sample) + '</select></div>' +
         '<div class="detail-section"><label>拜访</label><select class="select" id="cVisited">' + opts(['已拜访', '未拜访'], c.visited) + '</select></div>' +
         '<div class="detail-section"><label>客户潜力</label><select class="select" id="cPotential">' + opts(CUST_POTENTIAL, c.potential) + '</select></div>' +
@@ -784,15 +793,13 @@
         '<div class="detail-section"><label>首单时间 / 预计合作时间</label><input class="input" id="cFirstDate" value="' + esc(c.firstDate || '') + '"></div>' +
         '<div class="detail-section"><label>首单金额 / 未合作核心问题</label><input class="input" id="cAmount" value="' + esc(c.amount || '') + '"></div>' +
         '<div class="detail-section"><label>最新进展记录（一句话）</label><input class="input" id="cProgress" value="' + esc(c.progress || '') + '"></div>' +
-        '<div class="detail-section"><label>关联人脉</label><select class="select" id="cContact">' + linkOpts + '</select></div>' +
+        '<div class="detail-section"><label>关联人脉</label>' + contactPicker + '</div>' +
         '</div><div class="right-col">' +
         '<div class="detail-section"><label>负责人</label><input class="input" id="cOwner" value="' + esc(c.owner || '') + '"></div>' +
         '<div class="detail-section"><label>联系人</label><input class="input" id="cPerson" value="' + esc(c.person || '') + '"></div>' +
         '<div class="detail-section"><label>电话 / 微信</label><input class="input" id="cPhone" value="' + esc(c.phone || '') + '"></div>' +
-        '<div class="detail-section"><label>目前复购</label><input class="input" id="cRepurchase" value="' + esc(c.repurchase || '') + '"></div>' +
         '<div class="detail-section"><label>添加沟通记录（保存到时间线）</label><div class="grid cols-2">' +
           '<input class="input" id="cTlStage" placeholder="阶段，如：已拜访">' +
-          '<input class="input" id="cTlMemo" placeholder="进度…">' +
           '</div><button class="btn" style="margin-top:8px" data-act="addCustProgress" data-id="' + c.id + '">保存记录</button></div>' +
         '<div class="detail-section"><label>沟通时间线</label><div class="timeline">' + tl + '</div></div>' +
         '<button class="btn primary save-btn" data-act="saveCust" data-id="' + c.id + '">保存修改</button>' +
@@ -864,6 +871,10 @@
       },
       openCust: function (el) { Project._custDetailId = el.dataset.id; renderPage(Project._renderKey); },
       closeCust: function () { Project._custDetailId = null; renderPage(Project._renderKey); },
+      clearCustContact: function () {
+        var cselect = document.getElementById('cContact');
+        if (cselect) cselect.value = '';
+      },
       saveCust: function (el) {
         var id = el.dataset.id || Project._custDetailId; if (!id) return;
         var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
@@ -871,6 +882,7 @@
         var name = document.getElementById('cName').value.trim();
         if (!name) { toast('客户名称不能为空'); return; }
         c.name = name;
+        c.overview = document.getElementById('cOverview').value.trim();
         c.stage = document.getElementById('cStage').value;
         c.attr = document.getElementById('cAttr').value;
         c.channel = document.getElementById('cChannel').value;
@@ -889,7 +901,6 @@
         c.owner = document.getElementById('cOwner').value.trim();
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
-        c.repurchase = document.getElementById('cRepurchase').value.trim();
         c.contactId = document.getElementById('cContact').value || '';
         c.updatedAt = Date.now();
         p.updatedAt = Date.now();
@@ -913,7 +924,7 @@
         var c = (p.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
         var stage = document.getElementById('cTlStage').value.trim(); if (!stage) return;
         c.timeline = c.timeline || [];
-        c.timeline.push({ id: S.uid(), time: Date.now(), stage: stage, memo: document.getElementById('cTlMemo').value.trim() });
+        c.timeline.push({ id: S.uid(), time: Date.now(), stage: stage });
         c.updatedAt = Date.now();
         p.updatedAt = Date.now();
         saveRender();
@@ -1035,6 +1046,20 @@
         searchInput.addEventListener('input', function () {
           var q = searchInput.value.trim().toLowerCase();
           Array.prototype.forEach.call(select.options, function (o) {
+            if (!o.value) { o.style.display = ''; return; }
+            var text = (o.textContent || '').toLowerCase();
+            var info = (o.getAttribute('data-info') || '').toLowerCase();
+            o.style.display = (text.indexOf(q) >= 0 || info.indexOf(q) >= 0) ? '' : 'none';
+          });
+        });
+      }
+      // 客户编辑表单 - 关联人脉搜索
+      var csearch = document.getElementById('custContactSearch');
+      var cselect = document.getElementById('cContact');
+      if (csearch && cselect) {
+        csearch.addEventListener('input', function () {
+          var q = csearch.value.trim().toLowerCase();
+          Array.prototype.forEach.call(cselect.options, function (o) {
             if (!o.value) { o.style.display = ''; return; }
             var text = (o.textContent || '').toLowerCase();
             var info = (o.getAttribute('data-info') || '').toLowerCase();
