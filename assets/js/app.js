@@ -657,7 +657,8 @@
       var q = (this._custSearch || '').trim().toLowerCase();
       var attr = this._custAttr;
       var filtered = all.filter(function (c) {
-        if (attr && c.attr !== attr) return false;
+        if (attr === '__sample__') { if (c.sample !== '有') return false; }
+        else if (attr && c.attr !== attr) return false;
         if (!q) return true;
         var hay = [c.name, c.person, c.region, c.channel, c.attr, c.status, c.progress, (c.timeline || []).map(function (t) { return t.memo; }).join(' ')].join(' ').toLowerCase();
         return hay.indexOf(q) >= 0;
@@ -711,7 +712,8 @@
         return '<div class="cust-col"><div class="col-head"><span class="col-dot ' + CUST_STAGE_COLOR[stage] + '"></span>' + esc(stage) + ' <span class="count">' + list.length + '</span></div>' + cards + more + '</div>';
       }).join('') + '</div>';
       var attrChips = '<span class="chip ' + (attr === '' ? 'active' : '') + '" data-act="custAttr" data-v="">全部</span>' +
-        CUST_ATTRS.map(function (a) { return '<span class="chip ' + (attr === a ? 'active' : '') + '" data-act="custAttr" data-v="' + esc(a) + '">' + esc(a) + '</span>'; }).join('');
+        CUST_ATTRS.map(function (a) { return '<span class="chip ' + (attr === a ? 'active' : '') + '" data-act="custAttr" data-v="' + esc(a) + '">' + esc(a) + '</span>'; }).join('') +
+        '<span class="chip ' + (attr === '__sample__' ? 'active' : '') + '" data-act="custAttr" data-v="__sample__">已寄样</span>';
       var importBtn = (window.CIROA_CUSTOMERS && window.CIROA_CUSTOMERS.length && all.length === 0)
         ? '<button class="btn ghost" style="margin-left:auto" data-act="importCustTemplate" data-pid="' + p.id + '">导入初始客户清单（' + window.CIROA_CUSTOMERS.length + '）</button>'
         : '';
