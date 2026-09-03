@@ -2742,11 +2742,15 @@
           // 上传本地以保证云端也包含，避免数据只留在一端
           return S.syncPush();
         }
-        setSync('ok');
       } else {
         // 云端还没有数据（首次/重连后）→ 上传本地，建立共享存档
-        return S.syncPush().then(function () { setSync('ok'); });
+        return S.syncPush();
       }
+      return null;
+    }).then(function () {
+      // 统一在 promise 链尾成功回调里复位 UI：覆盖 (云端无 → 上传)、(有 → 改了 → merge)、(有 → 没改 → push 兜底) 三条路径
+      // 任一条路径成功都进入这里；若 syncPush 抛出，会被 runSync 的 .catch → showSyncError(setSync 'err') 接住，故此处的 ok 不会盖过真正的失败
+      setSync('ok');
       updateSyncInfo();
     });
   }
