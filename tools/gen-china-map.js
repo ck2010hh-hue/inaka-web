@@ -17,7 +17,10 @@ function project(lon, lat) {
   const theta = n * (lam - lam0);
   const rho = Math.sqrt(C - 2 * n * Math.sin(phi)) / n;
   const rho0 = Math.sqrt(C - 2 * n * Math.sin(phi0)) / n;
-  return [rho * Math.sin(theta), rho0 - rho * Math.cos(theta)];
+  // 注意 Y 轴：纬度越高 rho 越小，投影天然"北在负方向"；
+  // SVG 的 y 轴向下（y 越小越靠上），所以这里取 rho*cos(theta) - rho0，
+  // 保证纬度越高 y 越小 = 显示在上方。切勿改成 rho0 - rho*cos(theta)（会南北颠倒）。
+  return [rho * Math.sin(theta), rho * Math.cos(theta) - rho0];
 }
 
 // 环的质心（多边形质心公式），用于省名标注点
@@ -113,6 +116,18 @@ for (const [name, p] of Object.entries(provinces)) {
   const d = p.polys.map(poly => poly.map(ring => ringToPath(ring, scale, scale, ox, oy)).join('')).join('');
   out[name] = { d, cx: +(p.cx * scale + ox).toFixed(1), cy: +(p.cy * scale + oy).toFixed(1) };
 }
+
+// ---- 朝向自检（防止 Y 轴再被翻转）----
+// SVG 坐标系 y 向下：纬度越高，y 必须越小（显示在上方）
+function chk(cond, msg) { if (!cond) { console.error('✗ 朝向自检失败：' + msg); process.exit(1); } console.log('✓ ' + msg); }
+chk(out['北京市'] && out['海南省'] && out['北京市'].cy < out['海南省'].cy,
+  '北京在海南上方（纬度越高 y 越小）');
+chk(out['黑龙江省'] && out['北京市'] && out['黑龙江省'].cy < out['北京市'].cy,
+  '黑龙江在北京上方');
+chk(out['新疆维吾尔自治区'] && out['黑龙江省'] && out['新疆维吾尔自治区'].cx < out['黑龙江省'].cx,
+  '新疆在黑龙江左侧（经度越小 x 越小）');
+chk(out['台湾省'] && out['福建省'] && out['台湾省'].cx > out['福建省'].cx,
+  '台湾在福建右侧（东侧疆域完整）');
 
 const js = `/* 中国省级行政区 SVG 路径 —— 由 tools/gen-china-map.js 自动生成，勿手改
  * 数据源：阿里 DataV.GeoAtlas 100000_full.json（国家审图标准，含台湾/香港/澳门/南海九段线附图）
