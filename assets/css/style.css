@@ -845,3 +845,54 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .cust-contact-picker { display: flex; flex-direction: column; gap: 6px; }
 .cust-contact-current { min-height: 28px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .cust-contact-current .x { background: none; border: 1px solid var(--line); border-radius: 6px; width: 22px; height: 22px; line-height: 18px; padding: 0; cursor: pointer; color: var(--danger); }
+
+/* =====================================================================
+ * 客户版图（ciroa 概况页）：中国地图 / 区域清单 / 省明细
+ * ===================================================================== */
+.cust-map-page { max-width: 1080px; margin: 0 auto; }
+.map-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.map-stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 22px; box-shadow: var(--shadow); }
+.map-stat .l { font-size: 13px; color: var(--ink-soft); }
+.map-stat .n { font-size: 34px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.map-stat .n small { font-size: 14px; font-weight: 400; color: var(--ink-soft); }
+.map-stat.inline { display: flex; align-items: baseline; gap: 10px; padding: 10px 18px; }
+.map-stat.inline .l { font-size: 15px; font-weight: 600; color: var(--ink); }
+.map-stat.inline .n { font-size: 16px; font-weight: 500; }
+.map-card { padding: 10px; overflow: hidden; }
+.china-svg { width: 100%; height: auto; display: block; }
+.cn-prov { fill: #e9ede8; stroke: #ffffff; stroke-width: .8; transition: fill .15s; cursor: pointer; }
+.cn-prov:hover { fill: #d3ddd2; }
+.cn-prov.has { fill: #b7d9c2; }
+.cn-prov.warm { fill: #7cbf97; }
+.cn-prov.hot { fill: #3d9e6e; }
+.cn-label { fill: #8a918a; font-size: 13px; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
+.cn-label.has { fill: #14442e; font-weight: 700; font-size: 14px; pointer-events: auto; cursor: pointer; }
+.cn-label.has:hover { fill: #0b2c1d; }
+.cn-jd path { fill: none; stroke: #8a918a; stroke-width: 1; }
+.cn-jd .jd-label { fill: #8a918a; font-size: 11px; text-anchor: middle; }
+.map-legend { display: flex; gap: 16px; padding: 8px 12px 4px; font-size: 12px; color: var(--ink-soft); }
+.map-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.map-legend .lg-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.lg-dot.none { background: #e9ede8; }
+.lg-dot.has { background: #b7d9c2; }
+.lg-dot.warm { background: #7cbf97; }
+.lg-dot.hot { background: #3d9e6e; }
+
+/* 区域清单 */
+.map-region-list { padding: 6px 0; }
+.region-block { padding: 10px 18px; border-bottom: 1px solid var(--line); }
+.region-block:last-child { border-bottom: none; }
+.region-row { display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.region-row:hover .region-name { color: var(--blue); }
+.region-row.unset { cursor: default; }
+.region-name { font-weight: 600; }
+.region-n { background: var(--accent-soft); color: #8a6520; font-weight: 700; border-radius: 999px; min-width: 30px; text-align: center; padding: 2px 9px; font-size: 14px; }
+.region-cities { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+/* 省客户明细 */
+.map-detail-card { padding: 6px 0; }
+.map-cust-row { display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.map-cust-row:last-child { border-bottom: none; }
+.map-cust-row:hover { background: #f8f9f7; }
+.mc-name { flex: 1; font-weight: 600; }
+.mc-city { color: var(--ink-soft); font-size: 14px; min-width: 72px; }

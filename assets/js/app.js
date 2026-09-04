@@ -524,6 +524,10 @@
     _timelineEditId: null,
     _renderKey: 'project',
     _ownerKey: 'project',
+    // 客户版图视图状态：map=中国地图 / region=区域清单 / province=某省客户明细
+    _mapView: 'map',
+    _mapProv: null,
+    _mapFrom: 'map',
     render: function (s) {
       Project._renderKey = 'project';
       // 从 ciroa 一级板块返回「项目」时，清掉其临时占用的明细态，避免误带出 ciroa 项目弹窗
@@ -621,6 +625,105 @@
         '<button class="btn" style="margin-top:8px" data-act="addProjectContact" data-pid="' + p.id + '">添加</button></div>' +
         this.renderProjectTimeline(p) +
         '<div class="row-between" style="margin-top:16px"><button class="btn primary" data-act="saveProject">保存修改</button></div>';
+    },
+    // ---- 客户版图（ciroa 概况页）：中国地图 / 区域清单 / 省明细 ----
+    mapShortName: function (name) {
+      var s = name.replace(/省|市|特别行政区/g, '').replace(/维吾尔|回族|壮族/g, '');
+      return s;
+    },
+    renderCustMap: function (s, p) {
+      var self = this;
+      var custs = p.customers || [];
+      var total = custs.length;
+      var CM = (typeof window.CHINA_MAP !== 'undefined') ? window.CHINA_MAP : null;
+      var byProv = {};
+      custs.forEach(function (c) { var k = c.province || ''; (byProv[k] = byProv[k] || []).push(c); });
+      var named = Object.keys(byProv).filter(function (k) { return k; });
+      named.sort(function (a, b) { return byProv[b].length - byProv[a].length; });
+      var unassigned = byProv[''] || [];
+
+      // 视图：某省客户明细
+      if (this._mapView === 'province' && this._mapProv) {
+        var prov = this._mapProv;
+        var list = byProv[prov] || [];
+        var rows = list.slice().sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); }).map(function (c) {
+          return '<div class="map-cust-row" data-act="openCust" data-id="' + esc(c.id) + '">' +
+            '<span class="mc-name">' + esc(c.name || '(未命名客户)') + '</span>' +
+            '<span class="mc-city">' + esc(c.city || '未选市') + '</span>' +
+            '<span class="tag sm ' + CUST_STAGE_COLOR[c.stage] + '">' + esc(c.stage || '跟进中') + '</span></div>';
+        }).join('');
+        return '<div class="cust-map-page">' +
+          '<div class="map-head">' +
+          '<button class="btn ghost" data-act="mapBack">← 返回</button>' +
+          '<div class="map-stat inline"><span class="l">' + esc(prov) + '</span><span class="n">' + list.length + ' 家客户</span></div></div>' +
+          '<div class="card map-detail-card">' +
+          (rows || '<div class="empty">该省暂无客户。编辑客户时选择「客户所在地」后自动归入。</div>') +
+          '</div></div>';
+      }
+
+      // 视图：完整区域清单（省 → 市）
+      if (this._mapView === 'region') {
+        var blocks = named.map(function (prov) {
+          var cs = byProv[prov];
+          var cityMap = {};
+          cs.forEach(function (c) { var k = c.city || '未选市'; cityMap[k] = (cityMap[k] || 0) + 1; });
+          var cityChips = Object.keys(cityMap).sort(function (a, b) { return cityMap[b] - cityMap[a]; }).map(function (ct) {
+            return '<span class="chip" data-act="mapOpenProvince" data-v="' + esc(prov) + '">' + esc(ct) + ' ' + cityMap[ct] + '</span>';
+          }).join('');
+          return '<div class="region-block"><div class="region-row" data-act="mapOpenProvince" data-v="' + esc(prov) + '">' +
+            '<span class="region-name">' + esc(prov) + '</span><span class="region-n">' + cs.length + '</span></div>' +
+            '<div class="region-cities">' + cityChips + '</div></div>';
+        }).join('');
+        var unBlock = unassigned.length ? '<div class="region-block"><div class="region-row unset"><span class="region-name">未设置所在地</span><span class="region-n">' + unassigned.length + '</span></div>' +
+          '<div class="region-cities muted sm">编辑这些客户时选择「客户所在地」后自动归入版图</div></div>' : '';
+        return '<div class="cust-map-page">' +
+          '<div class="map-head">' +
+          '<button class="btn ghost" data-act="mapBack">← 返回版图</button>' +
+          '<div class="map-stat inline"><span class="l">完整客户版图</span><span class="n">' + total + ' 家</span></div></div>' +
+          '<div class="card map-region-list">' +
+          (blocks || '<div class="empty">还没有客户设置了所在地。</div>') + unBlock +
+          '</div></div>';
+      }
+
+      // 默认视图：中国地图
+      var provCount = {};
+      named.forEach(function (k) { provCount[k] = byProv[k].length; });
+      var maxN = Math.max.apply(null, named.map(function (k) { return byProv[k].length; }).concat([1]));
+      function shade(cnt) {
+        if (!cnt) return '';
+        var t = cnt / maxN;
+        if (cnt >= 10 || t > 0.66) return ' hot';
+        if (t > 0.33) return ' warm';
+        return ' has';
+      }
+      var paths = '', labels = '', jd = '';
+      if (CM) {
+        Object.keys(CM.provinces).forEach(function (name) {
+          var pr = CM.provinces[name];
+          paths += '<path class="cn-prov' + shade(provCount[name] || 0) + '" d="' + pr.d + '" data-act="mapOpenProvince" data-v="' + esc(name) + '"></path>';
+        });
+        Object.keys(CM.provinces).forEach(function (name) {
+          var pr = CM.provinces[name];
+          var cnt = provCount[name] || 0;
+          var short = self.mapShortName(name);
+          if (cnt > 0) labels += '<text class="cn-label has" x="' + pr.cx + '" y="' + pr.cy + '" data-act="mapOpenProvince" data-v="' + esc(name) + '">' + esc(short) + ' ' + cnt + '</text>';
+          else labels += '<text class="cn-label" x="' + pr.cx + '" y="' + pr.cy + '">' + esc(short) + '</text>';
+        });
+        jd = '<g class="cn-jd"><path d="' + CM.nineDash + '"></path>' +
+          (CM.nineDashLabel ? '<text class="jd-label" x="' + CM.nineDashLabel.x + '" y="' + CM.nineDashLabel.y + '">南海诸岛</text>' : '') + '</g>';
+      }
+      return '<div class="cust-map-page">' +
+        '<div class="map-head">' +
+        '<div class="map-stat"><div class="l">我的客户资产</div><div class="n">' + total + '<small> 家</small></div></div>' +
+        '<button class="btn ghost" data-act="mapRegion">查看完整客户版图 →</button>' +
+        '</div>' +
+        '<div class="card map-card"><svg viewBox="0 0 1000 760" class="china-svg">' +
+        paths + labels + jd +
+        '</svg>' +
+        '<div class="map-legend"><span><i class="lg-dot none"></i>暂无客户</span><span><i class="lg-dot has"></i>少量</span><span><i class="lg-dot warm"></i>中等</span><span><i class="lg-dot hot"></i>集中</span></div>' +
+        '</div>' +
+        '<div class="muted sm" style="margin-top:8px">点击省份查看该省客户明细 · 客户所在地在「编辑客户 → 客户所在地」设置后自动归入版图</div>' +
+        '</div>';
     },
     renderProjectTimeline: function (p) {
       var tl = (p.timeline || []).slice().sort(function (a, b) { return (b.created || 0) - (a.created || 0); }).map(function (t) {
@@ -771,6 +874,16 @@
         '<input class="input" id="custContactSearch" placeholder="搜索公司 / 姓名 / 角色 / 品牌 / 渠道 / 地区…">' +
         '<select class="select" id="cContact" data-stop>' + linkOpts + '</select>' +
         '</div>';
+      var regionData = (typeof window.REGION_DATA !== 'undefined') ? window.REGION_DATA : {};
+      var provNames = Object.keys(regionData);
+      var curProv = c.province || '';
+      var provOpts = '<option value="">选择省…</option>' + provNames.map(function (pv) { return '<option' + (pv === curProv ? ' selected' : '') + '>' + esc(pv) + '</option>'; }).join('');
+      var cityNames = regionData[curProv] || [];
+      var cityOpts = '<option value="">选择市…</option>' + cityNames.map(function (ct) { return '<option' + (ct === c.city ? ' selected' : '') + '>' + esc(ct) + '</option>'; }).join('');
+      var custLoc = '<div class="detail-section"><label>客户所在地（省 - 市）</label><div class="grid cols-2" style="gap:8px;margin:0">' +
+        '<select class="select" id="cProvince" data-stop>' + provOpts + '</select>' +
+        '<select class="select" id="cCity" data-stop>' + cityOpts + '</select></div>' +
+        '<div class="muted sm" style="margin-top:4px">用于客户版图按省 / 市统计</div></div>';
       var tl = (c.timeline || []).slice().reverse().map(function (t) {
         return '<div class="timeline-item"><div class="timeline-date">' + fmtDate(t.time) + '</div>' +
           '<div class="timeline-content"><p>' + esc(t.stage || '') + '</p>' + (t.memo ? '<p class="muted" style="margin-top:4px">' + esc(t.memo) + '</p>' : '') +
@@ -780,6 +893,7 @@
         '<div class="detail-body cust-detail-body"><div>' +
         '<div class="detail-section"><label>客户公司 / 名称</label><input class="input" id="cName" value="' + esc(c.name || '') + '"></div>' +
         '<div class="detail-section"><label>客户概况</label><textarea class="textarea" id="cOverview" rows="3" placeholder="公司背景、合作历史、主营渠道、规模等手动补充…">' + esc(c.overview || '') + '</textarea></div>' +
+        custLoc +
         '<div class="detail-section"><label>阶段</label><select class="select" id="cStage">' + opts(CUST_STAGES, c.stage) + '</select></div>' +
         '<div class="detail-section"><label>客户属性</label><select class="select" id="cAttr">' + opts(CUST_ATTRS, c.attr) + '</select></div>' +
         '<div class="detail-section"><label>渠道类型</label><select class="select" id="cChannel">' + opts(CUST_CHANNELS, c.channel) + '</select></div>' +
@@ -835,6 +949,19 @@
       custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage(Project._renderKey); },
       custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage(Project._renderKey); },
       custBoardBack: function () { Project._custStage = null; Project._custCompact = false; renderPage(Project._renderKey); },
+      // 客户版图导航
+      mapRegion: function () { Project._mapView = 'region'; Project._mapProv = null; renderPage(Project._renderKey); },
+      mapBack: function () {
+        if (Project._mapView === 'province') { Project._mapView = Project._mapFrom === 'region' ? 'region' : 'map'; Project._mapProv = null; }
+        else { Project._mapView = 'map'; }
+        renderPage(Project._renderKey);
+      },
+      mapOpenProvince: function (el) {
+        Project._mapFrom = Project._mapView;
+        Project._mapProv = el.dataset.v;
+        Project._mapView = 'province';
+        renderPage(Project._renderKey);
+      },
       custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage(Project._renderKey); },
       importCustTemplate: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
@@ -880,6 +1007,8 @@
         if (!name) { toast('客户名称不能为空'); return; }
         c.name = name;
         c.overview = document.getElementById('cOverview').value.trim();
+        c.province = document.getElementById('cProvince').value || '';
+        c.city = document.getElementById('cCity').value || '';
         c.stage = document.getElementById('cStage').value;
         c.attr = document.getElementById('cAttr').value;
         c.channel = document.getElementById('cChannel').value;
@@ -2611,10 +2740,10 @@
           '<div class="card"><div class="empty">尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。</div></div>';
       }
       var tabs = '<div class="detail-tabs ciroa-tabs">' +
-        '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">概况</button>' +
+        '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">客户版图</button>' +
         '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
         '</div>';
-      var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderOverviewTab(s, p);
+      var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderCustMap(s, p);
       return section('ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
         '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
         Project.renderCustOverlay(s);
@@ -2666,6 +2795,13 @@
   // 事件委托：日期切换（日历的日期输入框）
   pageHost.addEventListener('change', function (e) {
     if (e.target.id === 'calDate' && currentKey === 'focus') { if (Calendar.onDate) Calendar.onDate(); }
+    // 客户所在地：省变更 → 重建市下拉（客户版图数据源）
+    if (e.target.id === 'cProvince') {
+      var citySel = document.getElementById('cCity');
+      if (!citySel) return;
+      var cities = ((window.REGION_DATA || {})[e.target.value]) || [];
+      citySel.innerHTML = '<option value="">选择市…</option>' + cities.map(function (ct) { return '<option>' + esc(ct) + '</option>'; }).join('');
+    }
   });
   // 回车提交（聚焦在主输入/金额框时）
   pageHost.addEventListener('keydown', function (e) {

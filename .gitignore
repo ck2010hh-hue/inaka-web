@@ -6,3 +6,5 @@ tests/
 preview-network.html
 test-out.log
 *.log
+preview.html
+tools/china_full.json
