@@ -3178,14 +3178,8 @@
     // 已配置同步则自动开始（未配置则填完设置后由 settingsSave 启动）
     startAutoSync();
     refreshSyncLabel();
-    // 注册 Service Worker（PWA：手机可添加到主屏幕、离线可用）
-    if ('serviceWorker' in navigator && location.protocol === 'https:') {
-      navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('SW 注册失败', e); });
-      // 新版本 SW 接管时自动刷新一次，避免手机端一直显示旧缓存页面
-      navigator.serviceWorker.addEventListener('controllerchange', function () {
-        if (!window.__wbReloaded) { window.__wbReloaded = true; location.reload(); }
-      });
-    }
+    // 注：已停用 Service Worker（sw.js 现在只负责一次性注销旧 SW 并清理缓存）。
+    // 改用直连 GitHub Pages + 资源版本戳（?v=N）保证更新，避免国内慢 CDN 下 SW 回退旧缓存导致页面不更新。
   }
   init();
 })();
