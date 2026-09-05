@@ -629,6 +629,7 @@
     _mapProv: null,
     _mapFrom: 'map',
     _mapStage: null,          // null=全部；否则为某个 CUST_STAGES 值
+    _mapAttr: null,           // null=全部属性；否则为某个 CUST_ATTRS 值
     _procView: 'monthly',     // 采购趋势图粒度：monthly/quarterly/annual
     render: function (s) {
       Project._renderKey = 'project';
@@ -738,9 +739,12 @@
       var all = p.customers || [];
       var total = all.length;
       var CM = (typeof window.CHINA_MAP !== 'undefined') ? window.CHINA_MAP : null;
-      // 阶段筛选：选中某阶段时，地图/区域/省明细只统计该阶段客户
+      // 阶段筛选 + 属性筛选：地图/区域/省明细同时受两者过滤
       var stage = this._mapStage;
-      var custs = stage ? all.filter(function (c) { return c.stage === stage; }) : all;
+      var attr = this._mapAttr;
+      var custs = all;
+      if (stage) custs = custs.filter(function (c) { return c.stage === stage; });
+      if (attr) custs = custs.filter(function (c) { return c.attr === attr; });
       var byProv = {};
       custs.forEach(function (c) { var k = c.province || ''; (byProv[k] = byProv[k] || []).push(c); });
       var named = Object.keys(byProv).filter(function (k) { return k; });
@@ -757,12 +761,19 @@
         var prov = this._mapProv;
         var list = byProv[prov] || [];
         var rows = list.slice().sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); }).map(function (c) {
+          var latestTl = (c.timeline || []).slice().sort(function (x, y) { return (y.time || 0) - (x.time || 0); })[0];
+          var tlTxt = latestTl ? latestTl.stage : '';
           return '<div class="map-cust-row" data-act="openCust" data-id="' + esc(c.id) + '">' +
             '<span class="mc-name">' + esc(c.name || '(未命名客户)') + '</span>' +
+            '<span class="mc-attr">' + esc(c.attr || '未分类') + '</span>' +
             '<span class="mc-city">' + esc(c.city || '未选市') + '</span>' +
+            '<span class="mc-tl">' + esc(tlTxt) + '</span>' +
             '<span class="tag sm ' + CUST_STAGE_COLOR[c.stage] + '">' + esc(c.stage || '跟进中') + '</span></div>';
         }).join('');
-        var provTitle = stage ? (stage + ' · ' + prov) : prov;
+        var provFilters = [];
+        if (stage) provFilters.push(stage);
+        if (attr) provFilters.push(attr);
+        var provTitle = provFilters.length ? (provFilters.join(' · ') + ' · ' + prov) : prov;
         return '<div class="cust-map-page">' +
           '<div class="map-head">' +
           '<button class="btn ghost" data-act="mapBack">← 返回</button>' +
@@ -787,7 +798,10 @@
         }).join('');
         var unBlock = unassigned.length ? '<div class="region-block"><div class="region-row unset"><span class="region-name">未设置所在地</span><span class="region-n">' + unassigned.length + '</span></div>' +
           '<div class="region-cities muted sm">编辑这些客户时选择「客户所在地」后自动归入版图</div></div>' : '';
-        var regTitle = stage ? (stage + ' · 完整客户版图') : '完整客户版图';
+        var regFilters = [];
+        if (stage) regFilters.push(stage);
+        if (attr) regFilters.push(attr);
+        var regTitle = regFilters.length ? (regFilters.join(' · ') + ' · 完整客户版图') : '完整客户版图';
         return '<div class="cust-map-page">' +
           '<div class="map-head">' +
           '<button class="btn ghost" data-act="mapBack">← 返回版图</button>' +
@@ -830,19 +844,30 @@
           var n = all.filter(function (c) { return c.stage === st; }).length;
           return '<span class="stage-chip ' + (stage === st ? 'active ' : '') + 'c-' + CUST_STAGE_COLOR[st] + '" data-act="mapStage" data-v="' + esc(st) + '"><i class="dot ' + CUST_STAGE_COLOR[st] + '"></i>' + esc(st) + ' ' + n + '</span>';
         }).join('');
-      var stageLine = stage ? '<div class="muted sm" style="margin-top:6px">已按「' + esc(stage) + '」筛选 · <span class="link" data-act="mapStage" data-v="">清除筛选</span></div>' : '';
+      // 属性筛选 chip（阶段筛选下方）
+      var attrChips = CUST_ATTRS.map(function (a) {
+        var n = all.filter(function (c) { return c.attr === a; }).length;
+        return '<span class="attr-chip ' + (attr === a ? 'active ' : '') + '" data-act="mapAttrFilter" data-v="' + esc(a) + '">' + esc(a) + ' ' + n + '</span>';
+      }).join('');
+      var filterLine = (stage || attr) ? '<div class="muted sm" style="margin-top:6px">' +
+        (stage ? '已按「' + esc(stage) + '」筛选 · <span class="link" data-act="mapStage" data-v="">清除</span>' : '') +
+        (stage && attr ? ' · ' : '') +
+        (attr ? '已按「' + esc(attr) + '」筛选 · <span class="link" data-act="mapAttrFilter" data-v="">清除</span>' : '') +
+        '</div>' : '';
+      var activeFilters = (stage ? '「' + stage + '」阶段' : '') + (stage && attr ? ' / ' : '') + (attr ? '「' + attr + '」属性' : '');
       return '<div class="cust-map-page">' +
         '<div class="map-head">' +
         '<div class="map-stat"><div class="l">我的客户资产</div><div class="n">' + total + '<small> 家</small></div></div>' +
         '<div class="map-stat-actions"><button class="btn ghost" data-act="mapRegion">查看完整版图 →</button><button class="btn ghost" data-act="mapAttr">属性分布 →</button></div>' +
         '</div>' +
-        '<div class="stage-bar">' + stageChips + '</div>' + stageLine +
+        '<div class="stage-bar">' + stageChips + '</div>' +
+        '<div class="attr-bar">' + attrChips + '</div>' + filterLine +
         '<div class="card map-card"><svg viewBox="0 0 1000 760" class="china-svg">' +
         paths + labels + jd +
         '</svg>' +
         '<div class="map-legend"><span><i class="lg-dot none"></i>暂无客户</span><span><i class="lg-dot has"></i>少量</span><span><i class="lg-dot warm"></i>中等</span><span><i class="lg-dot hot"></i>集中</span></div>' +
         '</div>' +
-        (stage ? '<div class="muted sm" style="margin-top:8px">当前仅显示「' + esc(stage) + '」阶段客户（' + custs.length + ' 家）。点击省份查看该阶段省明细。</div>' :
+        (stage || attr ? '<div class="muted sm" style="margin-top:8px">当前仅显示' + activeFilters + '客户（' + custs.length + ' 家）。点击省份查看该筛选条件的省明细。</div>' :
           '<div class="muted sm" style="margin-top:8px">点击省份查看该省客户明细 · 客户所在地在「编辑客户 → 客户所在地」设置后自动归入版图</div>') +
         '</div>';
     },
@@ -1136,6 +1161,7 @@
       mapRegion: function () { Project._mapView = 'region'; Project._mapProv = null; renderPage(Project._renderKey); },
       mapAttr: function () { Project._mapView = 'attr'; Project._mapProv = null; renderPage(Project._renderKey); },
       mapStage: function (el) { Project._mapStage = (el.dataset.v || '') ? el.dataset.v : null; renderPage(Project._renderKey); },
+      mapAttrFilter: function (el) { var v = el.dataset.v || ''; Project._mapAttr = (Project._mapAttr === v) ? null : v; renderPage(Project._renderKey); },
       mapBack: function () {
         if (Project._mapView === 'province') { Project._mapView = Project._mapFrom === 'region' ? 'region' : 'map'; Project._mapProv = null; }
         else if (Project._mapView === 'attr') { Project._mapView = 'map'; }
