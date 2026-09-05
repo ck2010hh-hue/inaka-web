@@ -573,6 +573,15 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .net-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-soft); margin-top: 12px; }
 .net-legend .li { display: flex; align-items: center; gap: 6px; }
 .net-legend .sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.net-channel-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 6px; }
+.net-ch-list { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; }
+.net-ch-head { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.net-ch-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin-bottom: 8px; cursor: pointer; transition: all .12s; }
+.net-ch-item:hover { border-color: var(--accent, #4a90e2); background: var(--panel-2, #f5f8ff); }
+.net-ch-item .nc-name { font-weight: 600; color: var(--ink); }
+.net-ch-item .nc-role { font-weight: 400; font-size: 12px; color: var(--ink-soft); margin-left: 4px; }
+.net-ch-item .nc-co { font-size: 13px; color: var(--ink-soft); text-align: right; }
+.net-ch-item .nc-tag { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 11px; background: #e6f0ff; color: #2d6fd6; }
 
 @media (max-width: 1000px) {
   .net-wrap { grid-template-columns: 1fr; }

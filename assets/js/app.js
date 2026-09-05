@@ -1252,6 +1252,14 @@
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
         c.contactId = document.getElementById('cContact').value || '';
+        // 若关联了人脉，同步更新人脉的渠道类型
+        if (c.contactId) {
+          var linked = state.contacts.find(function (ct) { return ct.id === c.contactId; });
+          if (linked && linked.channel !== c.channel) {
+            linked.channel = c.channel;
+            linked.updatedAt = c.updatedAt;
+          }
+        }
         // 采购数据：读取录入行（月度金额数组，季度/年度由月度汇总衍生）
         c.procurement = Array.prototype.slice.call(document.querySelectorAll('#procRows .proc-row')).map(function (row) {
           var ym = row.querySelector('.proc-ym').value.trim();
@@ -1504,7 +1512,7 @@
 
   var Contacts = {
     key: 'contacts', label: '人脉', icon: '☻',
-    _tab: 'list', _branch: null, _search: '', _attrs: {}, _netSearch: '', _showKw: true, _showRel: true, _detailId: null,
+    _tab: 'list', _branch: null, _search: '', _attrs: {}, _netSearch: '', _netChannel: null, _showKw: true, _showRel: true, _detailId: null,
     // 图谱运行态（跨 render 保持坐标稳定）
     _netNodes: [], _netLinks: [], _netAdj: {}, _netPos: {}, _netSel: null,
     _netRAF: 0, _netAlpha: 1, _netRunning: false, _dragNode: null, _moved: false, _downPos: null,
@@ -1557,6 +1565,7 @@
         tagSpan('attr', ['品牌方 / 厂家', '代理 / 经销商', '流通商', '终端']) + '</div></div>' +
         '<div style="margin-top:14px"><label>主要渠道（多选）</label><div class="tag-group" id="cChannelTags">' +
         tagSpan('channel', ALL_CHANNELS) + '</div></div>' +
+        '<div style="margin-top:14px"><label>客户渠道类型（与客户编辑同步）</label><select class="select" id="cCustChannel"><option value="">未分类</option>' + CUST_CHANNELS.map(function (ch) { return '<option>' + esc(ch) + '</option>'; }).join('') + '</select></div>' +
         '<div style="margin-top:14px"><label>主营品牌 / 品类</label><input class="input" id="cBrands" placeholder="例如：本客 洁面 / ciroa 护肤"></div>' +
         '<div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end"><button class="btn primary" data-act="addContact">保存</button></div>' +
         '</div>';
@@ -1701,6 +1710,7 @@
       return '<div class="card" style="margin-top:16px"><h3 class="section-title">人脉关系网络（关联视图）</h3>' +
         '<p style="font-size:12px;color:var(--ink-soft);margin:-4px 0 12px;line-height:1.5">' +
         '圆点=人脉（按身份着色）、方块=公司。关联来自三处：<b>实线蓝</b>=你手动定义的关系（合作/竞争/上下游等，存进该人脉的「关联」字段并同步）；<b>橙点线</b>=系统从你备忘/时间线里自动抽取的共同提及（如两人都提到「胖东来」「apio」才连线，避免宽泛关联）；<b>细灰线</b>=隶属公司。点击节点看关联、可拖拽、搜索高亮；双指可缩放，空白处可拖动画布。</p>' +
+        this.renderNetChannelBar(s) +
         '<div class="net-controls">' +
         '<input class="input search" id="netSearch" type="text" placeholder="在图谱中搜索公司 / 姓名…" value="' + esc(this._netSearch) + '">' +
         '<div class="net-zoom"><button class="btn sm ghost" data-act="netZoomOut">−</button><span id="netZoomVal">' + Math.round(this._netScale * 100) + '%</span><button class="btn sm ghost" data-act="netZoomIn">+</button><button class="btn sm ghost" data-act="netZoomReset">重置</button></div>' +
@@ -1718,7 +1728,37 @@
         '<div class="li"><span class="sw" style="background:#4a90e2"></span>实线=定义关系</div>' +
         '<div class="li"><span class="sw" style="background:#d8dde4"></span>细线=隶属公司</div>' +
         '<div class="li"><span class="sw" style="background:#f5a623"></span>橙点线=备忘关键词关联</div>' +
-        '</div></div>';
+        '</div>' + this.renderNetChannelList(s) + '</div>';
+    },
+    renderNetChannelList: function (s) {
+      if (!this._netChannel) return '';
+      var ch = this._netChannel;
+      var list = s.contacts.filter(function (c) { return c.channel === ch; });
+      if (!list.length) return '<div class="net-ch-list"><div class="muted sm">该渠道类型暂无已归类的人脉。</div></div>';
+      var self = this;
+      var rows = list.map(function (c) {
+        var custRef = null;
+        state.project.forEach(function (p) { (p.customers || []).forEach(function (cu) { if (cu.contactId === c.id) custRef = { pid: p.id, cid: cu.id }; }); });
+        var act = custRef
+          ? ('data-act="openCustFromContact" data-pid="' + custRef.pid + '" data-cid="' + custRef.cid + '"')
+          : ('data-act="openContact" data-id="' + c.id + '"');
+        var tag = custRef ? ' <span class="nc-tag">已关联客户</span>' : '';
+        return '<div class="net-ch-item" ' + act + '>' +
+          '<div class="nc-name">' + esc(c.name || '(未命名)') + (c.role ? ' <span class="nc-role">' + esc(c.role) + '</span>' : '') + '</div>' +
+          '<div class="nc-co">' + esc(c.company || '未填公司') + tag + '</div></div>';
+      }).join('');
+      return '<div class="net-ch-list"><div class="net-ch-head">「' + esc(ch) + '」渠道人脉清单（' + list.length + '）</div>' + rows + '</div>';
+    },
+    renderNetChannelBar: function (s) {
+      var self = this;
+      var total = s.contacts.length;
+      var chips = '<span class="stage-chip ' + (self._netChannel ? '' : 'active') + '" data-act="mapNetChannel" data-v="">全部 ' + total + '</span>' +
+        CUST_CHANNELS.map(function (ch) {
+          var n = s.contacts.filter(function (c) { return c.channel === ch; }).length;
+          return '<span class="stage-chip ' + (self._netChannel === ch ? 'active ' : '') + '" data-act="mapNetChannel" data-v="' + esc(ch) + '">' + esc(ch) + ' ' + n + '</span>';
+        }).join('');
+      var hint = self._netChannel ? '<div class="muted sm" style="margin-top:6px">已按「' + esc(self._netChannel) + '」筛选 · <span class="link" data-act="mapNetChannel" data-v="">清除筛选</span></div>' : '';
+      return '<div class="net-channel-bar">' + chips + '</div>' + hint;
     },
     extractTerms: function (d) {
       var text = [d.last, (d.timeline || []).map(function (t) { return t.t; }).join(' '), d.company].join(' ').toLowerCase();
@@ -1730,7 +1770,7 @@
       var comps = {};
       s.contacts.forEach(function (d) { if (!comps[d.company]) comps[d.company] = { id: compId(d.company), name: d.company, type: 'company' }; });
       this._netNodes = s.contacts.map(function (d) {
-        return { id: 'p:' + d.id, name: d.name, company: d.company, type: 'person', color: (IDENTITY_COLORS[(d.tags || [])[0]] || '#888'), deg: 0 };
+        return { id: 'p:' + d.id, name: d.name, company: d.company, channel: d.channel || '', type: 'person', color: (IDENTITY_COLORS[(d.tags || [])[0]] || '#888'), deg: 0 };
       });
       Object.keys(comps).forEach(function (c) { self._netNodes.push({ id: comps[c].id, name: comps[c].name, company: comps[c].name, type: 'company', color: '#cfd6e0', deg: 0 }); });
       this._netLinks = [];
@@ -1831,7 +1871,8 @@
       this._netNodes.forEach(function (n) {
         var selDim = self._netSel && n.id !== self._netSel && !(self._netAdj[self._netSel] || []).some(function (r) { return r.node.id === n.id; });
         var qDim = self._netSearch && !self.matchNode(n);
-        var dim = selDim || qDim, hl = n.id === self._netSel;
+        var chDim = self._netChannel && n.type === 'person' && n.channel !== self._netChannel;
+        var dim = selDim || qDim || chDim, hl = n.id === self._netSel;
         var r = n.type === 'company' ? 9 + Math.min(6, n.deg) : 6 + Math.min(8, n.deg);
         var cls = 'node' + (dim ? ' dim' : '') + (hl ? ' hl' : '');
         if (n.type === 'company') {
@@ -1961,6 +2002,7 @@
         '<div class="detail-section"><label>身份标签（多选）</label>' + idTags + '</div>' +
         '<div class="detail-section"><label>公司属性（多选）</label>' + attrTags + '</div>' +
         '<div class="detail-section"><label>主要渠道（多选）</label>' + channelTags + '</div>' +
+        '<div class="detail-section"><label>客户渠道类型（与客户编辑同步）</label><select class="select" id="dCustChannel"><option value="">未分类</option>' + CUST_CHANNELS.map(function (ch) { return '<option' + (ch === (d.channel || '') ? ' selected' : '') + '>' + esc(ch) + '</option>'; }).join('') + '</select></div>' +
         '<div class="detail-section"><label>最近沟通</label><textarea class="textarea" id="dLast">' + esc(d.last || '') + '</textarea></div>' +
         '<div class="detail-section"><h4>手动关联</h4>' + rels + '</div>' +
         '<div class="detail-section"><h4>关联项目</h4>' + relatedProjectsHtml + '</div>';
@@ -1995,6 +2037,7 @@
           tags: activeVals('cIdTags'),
           attrs: activeVals('cAttrTags'),
           channels: activeVals('cChannelTags'),
+          channel: document.getElementById('cCustChannel').value,
           brands: document.getElementById('cBrands').value.trim(),
           timeline: [], relations: [],
           last: '', created: now, updatedAt: now
@@ -2003,12 +2046,18 @@
         toast('已添加 ' + name);
       },
       openContact: function (el) { Contacts._detailId = el.dataset.id; renderPage('contacts'); },
+      openCustFromContact: function (el) {
+        Project._detailId = el.dataset.pid;
+        Project._custDetailId = el.dataset.cid;
+        renderPage(Project._renderKey);
+      },
       closeDetail: function () { Contacts._detailId = null; renderPage('contacts'); },
       goProject: function (el) {
         Contacts._detailId = null;
         Project._detailId = el.dataset.id;
         renderPage(Project._renderKey);
       },
+      mapNetChannel: function (el) { Contacts._netChannel = (el.dataset.v || '') ? el.dataset.v : null; Contacts._netSel = null; renderPage('contacts'); },
       saveContact: function () {
         var id = Contacts._detailId; if (!id) return;
         var d = state.contacts.find(function (x) { return x.id === id; }); if (!d) return;
@@ -2025,7 +2074,19 @@
         d.tags = activeVals('dTagTags');
         d.attrs = activeVals('dAttrTags');
         d.channels = activeVals('dChannelTags');
+        d.channel = document.getElementById('dCustChannel').value;
         d.updatedAt = Date.now();
+        // 若该人脉关联了 Ciroa 客户，同步更新客户的渠道类型
+        var syncChannel = d.channel;
+        state.project.forEach(function (p) {
+          (p.customers || []).forEach(function (cust) {
+            if (cust.contactId === d.id && cust.channel !== syncChannel) {
+              cust.channel = syncChannel;
+              cust.updatedAt = d.updatedAt;
+              p.updatedAt = d.updatedAt;
+            }
+          });
+        });
         Contacts._detailId = null;
         saveRender();
         toast('已保存');
