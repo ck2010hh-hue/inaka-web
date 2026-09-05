@@ -107,6 +107,8 @@
         state._meta = Object.assign({ lastWrite: 0, lastSync: 0, lastPage: 'focus' }, parsed._meta || {});
         // 人脉字段归一化：兼容旧格式（tag→tags、memo→timeline），保证新结构所需数组字段齐全
         if (Array.isArray(state.contacts)) {
+          var cidSet = {};
+          state.contacts.forEach(function (c) { if (c && c.id) cidSet[c.id] = true; });
           state.contacts.forEach(function (c) {
             c.tags = c.tags || (c.tag ? [c.tag] : []);
             c.attrs = c.attrs || [];
@@ -118,6 +120,15 @@
             c.brands = c.brands || '';
             c.last = c.last || '';
             c.updatedAt = c.updatedAt || c.created || Date.now();
+            // 数据自愈：清理指向已删除人脉的悬空关联（r.to 形如 p:<id> 或 <id>），避免网络图引用不存在节点而崩溃
+            if (c.relations.length) {
+              c.relations = c.relations.filter(function (r) {
+                if (!r || !r.to) return false;
+                if (r.to.indexOf('co:') === 0) return true; // 公司节点由 company 字段动态重建，不在此校验
+                var pid = r.to.indexOf('p:') === 0 ? r.to.slice(2) : r.to;
+                return !!cidSet[pid];
+              });
+            }
           });
         }
         // 项目字段归一化：兼容旧格式，补齐卡片化编辑所需字段

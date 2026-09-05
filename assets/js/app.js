@@ -1802,6 +1802,8 @@
       }
       var byId = {}; this._netNodes.forEach(function (n) { byId[n.id] = n; });
       this._netLinks.forEach(function (l) { l.source = byId[l.s]; l.target = byId[l.t]; });
+      // 剔除悬空连线（引用了已删除/不存在节点的 link），否则后续渲染访问 .x 会抛错导致整图崩溃
+      this._netLinks = this._netLinks.filter(function (l) { return l.source && l.target; });
       var VW = this._VW, VH = this._VH;
       var self2 = this;
       this._netNodes.forEach(function (n) {
@@ -1829,7 +1831,7 @@
         }
       }
       links.forEach(function (l) {
-        if (!l.source) return;
+        if (!l.source || !l.target) return;
         var dx = l.target.x - l.source.x, dy = l.target.y - l.source.y, d = Math.sqrt(dx * dx + dy * dy) + 0.01;
         var f = kspring * (d - rest), fx = f * dx / d, fy = f * dy / d;
         l.source.vx += fx; l.source.vy += fy; l.target.vx -= fx; l.target.vy -= fy;
@@ -1858,7 +1860,7 @@
       var svg = '', self = this, VW = this._VW, VH = this._VH;
       svg += '<g transform="translate(' + this._netPan.x.toFixed(1) + ',' + this._netPan.y.toFixed(1) + ') scale(' + this._netScale.toFixed(3) + ')">';
       this._netLinks.forEach(function (l) {
-        if (!l.source) return;
+        if (!l.source || !l.target) return;
         var lsel = self._netSel && !(l.source.id === self._netSel || l.target.id === self._netSel);
         var lq = self._netSearch && !(self.matchNode(l.source) && self.matchNode(l.target));
         var cls = 'link ' + l.kind + ((lsel || lq) ? ' dim' : '');
@@ -2105,8 +2107,23 @@
         var id = el.dataset.id || Contacts._detailId;
         if (!id) return;
         if (!ask('删除该人脉及其所有记录？此操作不可恢复。')) return;
+        // 删除前先清理所有指向该人脉的引用，避免产生悬空关联（否则网络图会引用已删节点而崩溃）
+        (state.project || []).forEach(function (p) {
+          (p.customers || []).forEach(function (cu) {
+            if (cu.contactId === id) { cu.contactId = ''; cu.updatedAt = Date.now(); }
+          });
+        });
+        state.contacts.forEach(function (c) {
+          if (c.id === id) return;
+          if (Array.isArray(c.relations)) {
+            var before = c.relations.length;
+            c.relations = c.relations.filter(function (r) { return r.to !== id && r.to !== 'p:' + id; });
+            if (c.relations.length !== before) c.updatedAt = Date.now();
+          }
+        });
         state.contacts = state.contacts.filter(function (x) { return x.id !== id; });
         if (Contacts._detailId === id) Contacts._detailId = null;
+        if (Contacts._netSel && Contacts._netSel.indexOf('p:' + id) >= 0) Contacts._netSel = null;
         saveRender();
         toast('已删除');
       },
@@ -3463,7 +3480,15 @@
     var hasLocal = false;
     try { hasLocal = !!localStorage.getItem('inaka_workbench_state_v1'); } catch (e) {}
     if (migrateProjectCats()) S.save(false);
-    function go() { renderPage(currentKey); }
+    function go() {
+      try { renderPage(currentKey); }
+      catch (err) {
+        // 兜底：单个模块渲染异常不应让整个工作台白屏打不开（例如历史数据含悬空引用）
+        console.error('[inaka] 页面渲染异常，已降级到日历页：', err);
+        if (currentKey !== 'focus') { currentKey = 'focus'; try { renderPage('focus'); } catch (e2) {} }
+        else toast('页面渲染异常，请刷新或清理数据');
+      }
+    }
     if (!hasLocal) {
       fetch('data/seed.json').then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { if (j) { S.importJson(j); state = S.getState(); } })
