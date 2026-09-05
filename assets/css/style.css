@@ -858,7 +858,40 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .map-stat.inline { display: flex; align-items: baseline; gap: 10px; padding: 10px 18px; }
 .map-stat.inline .l { font-size: 15px; font-weight: 600; color: var(--ink); }
 .map-stat.inline .n { font-size: 16px; font-weight: 500; }
+.map-stat-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .map-card { padding: 10px; overflow: hidden; }
+/* 阶段筛选 chip */
+.stage-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.stage-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--ink-soft); cursor: pointer; transition: all .12s; }
+.stage-chip:hover { border-color: var(--accent); }
+.stage-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.stage-chip .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.c-green { background: #3d9e6e; } .c-blue { background: #4a90e2; } .c-amber { background: #f5a623; } .c-gray { background: #9aa3ad; }
+/* 属性分布视图 */
+.attr-view { display: flex; flex-wrap: wrap; gap: 18px; padding: 16px; }
+.attr-block { flex: 1 1 240px; min-width: 240px; }
+.attr-block.wide { flex-basis: 100%; }
+.attr-block h4 { margin: 0 0 10px; font-size: 14px; color: var(--ink); }
+.pie-wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.pie-legend { font-size: 12px; }
+.pie-leg-row { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+.pie-leg-row .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.pie-leg-row .val { margin-left: auto; font-weight: 600; color: var(--ink); }
+.hstack-svg { width: 100%; max-width: 480px; height: auto; }
+/* 采购录入 + 趋势图 */
+.proc-rows { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.proc-row { display: flex; gap: 6px; align-items: center; }
+.proc-row .proc-ym { flex: 0 0 110px; }
+.proc-row .proc-amt { flex: 1; }
+.proc-row .x { flex: none; }
+.proc-chart { margin: 8px 0; }
+.proc-chart .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; margin-bottom: 6px; }
+.proc-chart .seg-item { padding: 3px 12px; font-size: 12px; cursor: pointer; color: var(--ink-soft); }
+.proc-chart .seg-item.active { background: var(--accent); color: #fff; }
+.proc-sum { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+.proc-sum b { color: var(--ink); }
+.trend-svg { width: 100%; max-width: 340px; height: auto; }
+
 .china-svg { width: 100%; height: auto; display: block; }
 .cn-prov { fill: #e9ede8; stroke: #ffffff; stroke-width: .8; transition: fill .15s; cursor: pointer; }
 .cn-prov:hover { fill: #d3ddd2; }

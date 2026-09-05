@@ -510,6 +510,106 @@
   var CUST_POT_CLASS = { '大': 'potential-big', '中': 'potential-mid', '小': 'potential-small' };
   function custPotClass(p) { return CUST_POT_CLASS[p] || 'potential-small'; }
 
+  // 省份 → 大区（用于客户按区域统计分布）
+  var PROVINCE_REGION = {
+    '上海市': '华东', '江苏省': '华东', '浙江省': '华东', '安徽省': '华东', '福建省': '华东', '江西省': '华东', '山东省': '华东',
+    '北京市': '华北', '天津市': '华北', '河北省': '华北', '山西省': '华北', '内蒙古自治区': '华北',
+    '广东省': '华南', '广西壮族自治区': '华南', '海南省': '华南',
+    '河南省': '华中', '湖北省': '华中', '湖南省': '华中',
+    '重庆市': '西南', '四川省': '西南', '贵州省': '西南', '云南省': '西南', '西藏自治区': '西南',
+    '陕西省': '西北', '甘肃省': '西北', '青海省': '西北', '宁夏回族自治区': '西北', '新疆维吾尔自治区': '西北',
+    '辽宁省': '东北', '吉林省': '东北', '黑龙江省': '东北'
+  };
+  var REGION_ORDER = ['华东', '华北', '华南', '华中', '西南', '西北', '东北'];
+  function regionOf(prov) { return PROVINCE_REGION[prov] || '其他'; }
+
+  // 采购额汇总助手：月度为唯一真源，季度/年度由月度求和衍生
+  function custProcMonthly(c) {
+    return (c.procurement || []).slice().sort(function (a, b) { return a.ym < b.ym ? -1 : (a.ym > b.ym ? 1 : 0); });
+  }
+  function custProcQuarterly(c) {
+    var q = {};
+    custProcMonthly(c).forEach(function (r) {
+      var p = r.ym.split('-'); if (p.length < 2) return;
+      var qi = Math.floor((parseInt(p[1], 10) - 1) / 3) + 1;
+      var key = p[0] + '-Q' + qi;
+      q[key] = (q[key] || 0) + (r.amount || 0);
+    });
+    return Object.keys(q).sort().map(function (k) { return { ym: k, amount: q[k] }; });
+  }
+  function custProcAnnual(c) {
+    var a = {};
+    custProcMonthly(c).forEach(function (r) {
+      var y = (r.ym.split('-')[0] || ''); if (!y) return;
+      a[y] = (a[y] || 0) + (r.amount || 0);
+    });
+    return Object.keys(a).sort().map(function (k) { return { ym: k, amount: a[k] }; });
+  }
+  function custProcSeries(c, view) {
+    if (view === 'quarterly') return custProcQuarterly(c);
+    if (view === 'annual') return custProcAnnual(c);
+    return custProcMonthly(c);
+  }
+  // 通用计数：按 keyFn 统计数组
+  function countByKey(arr, keyFn) {
+    var m = {};
+    arr.forEach(function (x) { var k = keyFn(x); if (k) m[k] = (m[k] || 0) + 1; });
+    return m;
+  }
+  // 竖向柱状图（采购趋势）
+  function makeBarChart(series, opts) {
+    opts = opts || {};
+    if (!series || !series.length) return '<div class="muted sm">暂无采购数据</div>';
+    var w = opts.w || 340, h = opts.h || 170, pad = 26, bottom = 16;
+    var max = Math.max.apply(null, series.map(function (s) { return s.value; }).concat([1]));
+    var n = series.length, gap = (w - pad * 2) / n, bw = Math.min(gap * 0.62, 34);
+    var bars = series.map(function (s, i) {
+      var bh = (s.value / max) * (h - pad - bottom);
+      var x = pad + i * gap + (gap - bw) / 2, y = h - bottom - bh;
+      return '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + bh.toFixed(1) + '" rx="2" fill="' + (opts.color || '#3d9e6e') + '"><title>' + esc(s.label) + '：' + s.value + '</title></rect>' +
+        '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (h - bottom + 11).toFixed(1) + '" font-size="9" text-anchor="middle" fill="#8b95a5">' + esc(s.label) + '</text>';
+    }).join('');
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" class="trend-svg">' + bars + '</svg>';
+  }
+  // 横向堆叠条形（按省×属性分布）
+  function makeHStack(rows, opts) {
+    opts = opts || {};
+    if (!rows.length) return '<div class="muted sm">暂无数据</div>';
+    var labelW = opts.labelW || 92, barX = labelW, barW = (opts.w || 460) - labelW - 8, h = opts.rowH || 26;
+    var max = Math.max.apply(null, rows.map(function (r) { return r.total; }).concat([1]));
+    var svg = '';
+    rows.forEach(function (r, i) {
+      var y = i * h + 4, x = barX, segs = '';
+      r.segs.forEach(function (sg) {
+        var wseg = (sg.value / max) * barW;
+        if (sg.value > 0) segs += '<rect x="' + x.toFixed(1) + '" y="' + (y + 3) + '" width="' + wseg.toFixed(1) + '" height="' + (h - 8) + '" fill="' + sg.color + '"><title>' + esc(r.label) + ' · ' + esc(sg.name) + '：' + sg.value + '</title></rect>';
+        x += wseg;
+      });
+      svg += '<text x="' + (labelW - 6) + '" y="' + (y + h / 2 + 3) + '" font-size="11" text-anchor="end" fill="#5a6b78">' + esc(r.label) + '</text>' + segs +
+        '<text x="' + (barX + barW + 4) + '" y="' + (y + h / 2 + 3) + '" font-size="10" fill="#8b95a5">' + r.total + '</text>';
+    });
+    return '<svg width="' + (opts.w || 460) + '" height="' + (rows.length * h + 6) + '" viewBox="0 0 ' + (opts.w || 460) + ' ' + (rows.length * h + 6) + '" class="hstack-svg">' + svg + '</svg>';
+  }
+  // 采购录入行（编辑客户弹窗内）
+  function procRowsHtml(c) {
+    var rows = (c.procurement || []).slice();
+    if (!rows.length) rows = [{ ym: '', amount: '' }];
+    return rows.map(function (r, i) {
+      return '<div class="proc-row" data-i="' + i + '">' +
+        '<input class="input proc-ym" placeholder="2026-01" value="' + esc(r.ym || '') + '">' +
+        '<input class="input proc-amt" type="number" placeholder="金额" value="' + (r.amount != null ? r.amount : '') + '">' +
+        '<button class="x" data-act="delProcRow" data-i="' + i + '" title="删除">✕</button></div>';
+    }).join('');
+  }
+  // 采购数据区段（趋势图 + 录入行 + 添加按钮）
+  function procSectionHtml(c) {
+    return '<div class="detail-section"><label>采购数据（月度金额，元）</label>' +
+      '<div id="procChart">' + Project.renderProcChart(c) + '</div>' +
+      '<div id="procRows" class="proc-rows">' + procRowsHtml(c) + '</div>' +
+      '<button class="btn sm ghost" data-act="addProcRow">+ 添加月份</button>' +
+      '<div class="muted sm" style="margin-top:4px">季度 / 年度由月度自动汇总；点「月 / 季 / 年」切换趋势图</div></div>';
+  }
+
   var Project = {
     key: 'project', label: '项目', icon: '◫',
     _detailId: null,
@@ -524,10 +624,12 @@
     _timelineEditId: null,
     _renderKey: 'project',
     _ownerKey: 'project',
-    // 客户版图视图状态：map=中国地图 / region=区域清单 / province=某省客户明细
+    // 客户版图视图状态：map=中国地图 / region=区域清单 / province=某省客户明细 / attr=属性分布
     _mapView: 'map',
     _mapProv: null,
     _mapFrom: 'map',
+    _mapStage: null,          // null=全部；否则为某个 CUST_STAGES 值
+    _procView: 'monthly',     // 采购趋势图粒度：monthly/quarterly/annual
     render: function (s) {
       Project._renderKey = 'project';
       // 从 ciroa 一级板块返回「项目」时，清掉其临时占用的明细态，避免误带出 ciroa 项目弹窗
@@ -633,14 +735,22 @@
     },
     renderCustMap: function (s, p) {
       var self = this;
-      var custs = p.customers || [];
-      var total = custs.length;
+      var all = p.customers || [];
+      var total = all.length;
       var CM = (typeof window.CHINA_MAP !== 'undefined') ? window.CHINA_MAP : null;
+      // 阶段筛选：选中某阶段时，地图/区域/省明细只统计该阶段客户
+      var stage = this._mapStage;
+      var custs = stage ? all.filter(function (c) { return c.stage === stage; }) : all;
       var byProv = {};
       custs.forEach(function (c) { var k = c.province || ''; (byProv[k] = byProv[k] || []).push(c); });
       var named = Object.keys(byProv).filter(function (k) { return k; });
       named.sort(function (a, b) { return byProv[b].length - byProv[a].length; });
       var unassigned = byProv[''] || [];
+
+      // 视图：属性分布（按客户类型/属性维度的图表）
+      if (this._mapView === 'attr') {
+        return this.renderCustAttr(s, p, all);
+      }
 
       // 视图：某省客户明细
       if (this._mapView === 'province' && this._mapProv) {
@@ -652,12 +762,13 @@
             '<span class="mc-city">' + esc(c.city || '未选市') + '</span>' +
             '<span class="tag sm ' + CUST_STAGE_COLOR[c.stage] + '">' + esc(c.stage || '跟进中') + '</span></div>';
         }).join('');
+        var provTitle = stage ? (stage + ' · ' + prov) : prov;
         return '<div class="cust-map-page">' +
           '<div class="map-head">' +
           '<button class="btn ghost" data-act="mapBack">← 返回</button>' +
-          '<div class="map-stat inline"><span class="l">' + esc(prov) + '</span><span class="n">' + list.length + ' 家客户</span></div></div>' +
+          '<div class="map-stat inline"><span class="l">' + esc(provTitle) + '</span><span class="n">' + list.length + ' 家客户</span></div></div>' +
           '<div class="card map-detail-card">' +
-          (rows || '<div class="empty">该省暂无客户。编辑客户时选择「客户所在地」后自动归入。</div>') +
+          (rows || '<div class="empty">该省暂无' + (stage ? '「' + esc(stage) + '」阶段' : '') + '客户。编辑客户时选择「客户所在地」后自动归入。</div>') +
           '</div></div>';
       }
 
@@ -676,10 +787,11 @@
         }).join('');
         var unBlock = unassigned.length ? '<div class="region-block"><div class="region-row unset"><span class="region-name">未设置所在地</span><span class="region-n">' + unassigned.length + '</span></div>' +
           '<div class="region-cities muted sm">编辑这些客户时选择「客户所在地」后自动归入版图</div></div>' : '';
+        var regTitle = stage ? (stage + ' · 完整客户版图') : '完整客户版图';
         return '<div class="cust-map-page">' +
           '<div class="map-head">' +
           '<button class="btn ghost" data-act="mapBack">← 返回版图</button>' +
-          '<div class="map-stat inline"><span class="l">完整客户版图</span><span class="n">' + total + ' 家</span></div></div>' +
+          '<div class="map-stat inline"><span class="l">' + esc(regTitle) + '</span><span class="n">' + total + ' 家</span></div></div>' +
           '<div class="card map-region-list">' +
           (blocks || '<div class="empty">还没有客户设置了所在地。</div>') + unBlock +
           '</div></div>';
@@ -712,18 +824,88 @@
         jd = '<g class="cn-jd"><path d="' + CM.nineDash + '"></path>' +
           (CM.nineDashLabel ? '<text class="jd-label" x="' + CM.nineDashLabel.x + '" y="' + CM.nineDashLabel.y + '">南海诸岛</text>' : '') + '</g>';
       }
+      // 阶段筛选 chip（资产总数右侧）
+      var stageChips = '<span class="stage-chip ' + (stage ? '' : 'active') + '" data-act="mapStage" data-v="">全部 ' + total + '</span>' +
+        CUST_STAGES.map(function (st) {
+          var n = all.filter(function (c) { return c.stage === st; }).length;
+          return '<span class="stage-chip ' + (stage === st ? 'active ' : '') + 'c-' + CUST_STAGE_COLOR[st] + '" data-act="mapStage" data-v="' + esc(st) + '"><i class="dot ' + CUST_STAGE_COLOR[st] + '"></i>' + esc(st) + ' ' + n + '</span>';
+        }).join('');
+      var stageLine = stage ? '<div class="muted sm" style="margin-top:6px">已按「' + esc(stage) + '」筛选 · <span class="link" data-act="mapStage" data-v="">清除筛选</span></div>' : '';
       return '<div class="cust-map-page">' +
         '<div class="map-head">' +
         '<div class="map-stat"><div class="l">我的客户资产</div><div class="n">' + total + '<small> 家</small></div></div>' +
-        '<button class="btn ghost" data-act="mapRegion">查看完整客户版图 →</button>' +
+        '<div class="map-stat-actions"><button class="btn ghost" data-act="mapRegion">查看完整版图 →</button><button class="btn ghost" data-act="mapAttr">属性分布 →</button></div>' +
         '</div>' +
+        '<div class="stage-bar">' + stageChips + '</div>' + stageLine +
         '<div class="card map-card"><svg viewBox="0 0 1000 760" class="china-svg">' +
         paths + labels + jd +
         '</svg>' +
         '<div class="map-legend"><span><i class="lg-dot none"></i>暂无客户</span><span><i class="lg-dot has"></i>少量</span><span><i class="lg-dot warm"></i>中等</span><span><i class="lg-dot hot"></i>集中</span></div>' +
         '</div>' +
-        '<div class="muted sm" style="margin-top:8px">点击省份查看该省客户明细 · 客户所在地在「编辑客户 → 客户所在地」设置后自动归入版图</div>' +
+        (stage ? '<div class="muted sm" style="margin-top:8px">当前仅显示「' + esc(stage) + '」阶段客户（' + custs.length + ' 家）。点击省份查看该阶段省明细。</div>' :
+          '<div class="muted sm" style="margin-top:8px">点击省份查看该省客户明细 · 客户所在地在「编辑客户 → 客户所在地」设置后自动归入版图</div>') +
         '</div>';
+    },
+    // 属性分布视图：按客户类型（属性）维度的图表
+    renderCustAttr: function (s, p, all) {
+      var self = this;
+      var custs = all || [];
+      // 1) 属性类型饼图
+      var attrCount = countByKey(custs, function (c) { return c.attr; });
+      var attrEntries = CUST_ATTRS.map(function (a, i) {
+        return { label: a, value: attrCount[a] || 0, color: ATTR_PALETTE[i % ATTR_PALETTE.length] };
+      });
+      var pieHtml = Contacts.makePie(attrEntries, 180, '类型') + Contacts.makeLegend(attrEntries);
+      // 2) 按省 × 属性 横向堆叠（只列有客户的省，按总数排序）
+      var provMap = {};
+      custs.forEach(function (c) {
+        var pv = c.province || '未设置';
+        provMap[pv] = provMap[pv] || { label: pv, segs: {}, total: 0 };
+        var a = c.attr || '未分类';
+        provMap[pv].segs[a] = (provMap[pv].segs[a] || 0) + 1;
+        provMap[pv].total++;
+      });
+      var provRows = Object.keys(provMap).map(function (k) {
+        var r = provMap[k];
+        var segs = CUST_ATTRS.map(function (a, i) {
+          return { name: a, value: r.segs[a] || 0, color: ATTR_PALETTE[i % ATTR_PALETTE.length] };
+        });
+        return { label: r.label, total: r.total, segs: segs };
+      }).sort(function (a, b) { return b.total - a.total; });
+      var stackHtml = makeHStack(provRows, { w: 480 });
+      // 3) 按大区分布
+      var regMap = {};
+      custs.forEach(function (c) { var rg = regionOf(c.province || ''); regMap[rg] = (regMap[rg] || 0) + 1; });
+      var regEntries = REGION_ORDER.concat(['其他']).filter(function (r) { return regMap[r]; }).map(function (r, i) {
+        return { label: r, value: regMap[r], color: ATTR_PALETTE[i % ATTR_PALETTE.length] };
+      });
+      var regHtml = Contacts.makePie(regEntries, 160, '大区') + Contacts.makeLegend(regEntries);
+      return '<div class="cust-map-page">' +
+        '<div class="map-head">' +
+        '<button class="btn ghost" data-act="mapBack">← 返回版图</button>' +
+        '<div class="map-stat inline"><span class="l">客户属性分布</span><span class="n">' + custs.length + ' 家</span></div></div>' +
+        '<div class="card attr-view">' +
+        '<div class="attr-block"><h4>按客户类型</h4><div class="pie-wrap">' + pieHtml + '</div></div>' +
+        '<div class="attr-block"><h4>按大区</h4><div class="pie-wrap">' + regHtml + '</div></div>' +
+        '<div class="attr-block wide"><h4>各省市 × 客户类型分布</h4>' + stackHtml + '</div>' +
+        '</div>' +
+        '<div class="muted sm" style="margin-top:8px">类型取自「编辑客户 → 客户属性」（代理商/经销商、终端实体、流通商/批发商）。</div>' +
+        '</div>';
+    },
+    // 客户采购趋势图（在编辑客户弹窗内展示，读取已保存的 procurement）
+    renderProcChart: function (c) {
+      var view = this._procView || 'monthly';
+      var series = custProcSeries(c, view).map(function (r) { return { label: r.ym, value: r.amount || 0 }; });
+      var toggle = '<div class="seg">' +
+        ['monthly', 'quarterly', 'annual'].map(function (v) {
+          var lab = v === 'monthly' ? '月' : v === 'quarterly' ? '季' : '年';
+          return '<span class="seg-item ' + (view === v ? 'active' : '') + '" data-act="procToggle" data-v="' + v + '">' + lab + '</span>';
+        }).join('') + '</div>';
+      var sum = series.reduce(function (s, x) { return s + x.value; }, 0);
+      var unit = view === 'monthly' ? '月度' : view === 'quarterly' ? '季度' : '年度';
+      return '<div class="proc-chart">' + toggle +
+        '<div class="proc-sum">合计 ' + unit + '采购：<b>' + sum.toLocaleString('zh-CN') + '</b> 元</div>' +
+        makeBarChart(series, { color: '#3d9e6e' }) + '</div>';
     },
     renderProjectTimeline: function (p) {
       var tl = (p.timeline || []).slice().sort(function (a, b) { return (b.created || 0) - (a.created || 0); }).map(function (t) {
@@ -903,6 +1085,7 @@
         '<div class="detail-section"><label>寄样</label><select class="select" id="cSample">' + opts(['有', '无'], c.sample) + '</select></div>' +
         '<div class="detail-section"><label>拜访</label><select class="select" id="cVisited">' + opts(['已拜访', '未拜访'], c.visited) + '</select></div>' +
         '<div class="detail-section"><label>客户潜力</label><select class="select" id="cPotential">' + opts(CUST_POTENTIAL, c.potential) + '</select></div>' +
+        procSectionHtml(c) +
         '<div class="detail-section"><label>合作价格体系</label><input class="input" id="cPrice" value="' + esc(c.price || '') + '"></div>' +
         '<div class="detail-section"><label>关联人脉</label>' + contactPicker + '</div>' +
         '</div><div class="right-col">' +
@@ -951,8 +1134,11 @@
       custBoardBack: function () { Project._custStage = null; Project._custCompact = false; renderPage(Project._renderKey); },
       // 客户版图导航
       mapRegion: function () { Project._mapView = 'region'; Project._mapProv = null; renderPage(Project._renderKey); },
+      mapAttr: function () { Project._mapView = 'attr'; Project._mapProv = null; renderPage(Project._renderKey); },
+      mapStage: function (el) { Project._mapStage = (el.dataset.v || '') ? el.dataset.v : null; renderPage(Project._renderKey); },
       mapBack: function () {
         if (Project._mapView === 'province') { Project._mapView = Project._mapFrom === 'region' ? 'region' : 'map'; Project._mapProv = null; }
+        else if (Project._mapView === 'attr') { Project._mapView = 'map'; }
         else { Project._mapView = 'map'; }
         renderPage(Project._renderKey);
       },
@@ -961,6 +1147,23 @@
         Project._mapProv = el.dataset.v;
         Project._mapView = 'province';
         renderPage(Project._renderKey);
+      },
+      // 采购数据录入（直接操作 DOM，避免整页重渲染丢失未保存输入）
+      addProcRow: function () {
+        var box = document.getElementById('procRows'); if (!box) return;
+        var i = box.children.length;
+        box.insertAdjacentHTML('beforeend', '<div class="proc-row" data-i="' + i + '"><input class="input proc-ym" placeholder="2026-01"><input class="input proc-amt" type="number" placeholder="金额"><button class="x" data-act="delProcRow" data-i="' + i + '">✕</button></div>');
+      },
+      delProcRow: function (el) {
+        var row = el.parentNode;
+        if (row && row.parentNode) row.parentNode.removeChild(row);
+      },
+      procToggle: function (el) {
+        Project._procView = el.dataset.v || 'monthly';
+        var p = state.project.find(function (x) { return x.id === Project._detailId; });
+        var c = p && (p.customers || []).find(function (x) { return x.id === Project._custDetailId; });
+        var box = document.getElementById('procChart');
+        if (c && box) box.innerHTML = Project.renderProcChart(c);
       },
       custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage(Project._renderKey); },
       importCustTemplate: function (el) {
@@ -1023,6 +1226,12 @@
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
         c.contactId = document.getElementById('cContact').value || '';
+        // 采购数据：读取录入行（月度金额数组，季度/年度由月度汇总衍生）
+        c.procurement = Array.prototype.slice.call(document.querySelectorAll('#procRows .proc-row')).map(function (row) {
+          var ym = row.querySelector('.proc-ym').value.trim();
+          var amt = parseFloat(row.querySelector('.proc-amt').value);
+          return { ym: ym, amount: isNaN(amt) ? 0 : amt };
+        }).filter(function (r) { return r.ym; });
         c.updatedAt = Date.now();
         p.updatedAt = Date.now();
         Project._custDetailId = null;
