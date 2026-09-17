@@ -237,15 +237,19 @@
       var self = this;
       var filter = this._f || 'all';
       var fcount = s.todo.filter(function (t) { return !t.done; }).length;
+      var todoTabs = teamMode ? ['天意'] : ['万澜', '天意'];
       var wlActive = s.todo.filter(function (t) { return !t.done && t.tab === '万澜'; }).length;
       var tyActive = s.todo.filter(function (t) { return !t.done && t.tab === '天意'; }).length;
+      var tabStat = teamMode ? ('天意 ' + tyActive) : ('万澜 ' + wlActive + ' / 天意 ' + tyActive);
       var projOpts = '<option value="无">无</option>' + s.project.map(function (p) {
         return '<option value="' + esc(p.name) + '">' + esc(p.name) + '</option>';
       }).join('');
-      return section('待办', '当前 ' + fcount + ' 项进行中 · 万澜 ' + wlActive + ' / 天意 ' + tyActive, '') +
+      var tabField = teamMode ? '' :
+        '<div class="field" style="margin:0"><label>归属（万澜 / 天意）</label><select class="select" id="todoTab"><option>万澜</option><option>天意</option></select></div>';
+      return section('待办', '当前 ' + fcount + ' 项进行中 · ' + tabStat, '') +
         '<div class="card"><div class="grid cols-2">' +
         '<div class="field" style="margin:0"><label>事项</label><input class="input" id="todoText" placeholder="要做什么"></div>' +
-        '<div class="field" style="margin:0"><label>归属（万澜 / 天意）</label><select class="select" id="todoTab"><option>万澜</option><option>天意</option></select></div>' +
+        tabField +
         '<div class="field" style="margin:0"><label>类型</label><select class="select" id="todoSub"><option>临时任务</option><option>长线任务</option></select></div>' +
         '<div class="field" style="margin:0"><label>属性</label><select class="select" id="todoAttr"><option>客户</option><option>内部</option><option>品牌</option><option>其他</option></select></div>' +
         '<div class="field" style="margin:0"><label>关联项目</label><select class="select" id="todoProj">' + projOpts + '</select></div>' +
@@ -259,8 +263,7 @@
             ({ all: '全部', active: '进行中', done: '已完成' }[f]) + '</button>';
         }).join('') + '</div></div></div>' +
         '<div class="todo-board">' +
-        self.renderCol(s, '万澜', 'blue') +
-        self.renderCol(s, '天意', 'amber') +
+        todoTabs.map(function (c) { return self.renderCol(s, c, c === '万澜' ? 'blue' : 'amber'); }).join('') +
         '</div>' +
         self.renderOverlay(s);
     },
@@ -387,7 +390,7 @@
         '<div class="detail-section"><label>创建时间</label><div class="muted">' + (t.createdAt ? fmtDate(t.createdAt) : '未知') + '</div></div>' +
         (t.completedAt ? '<div class="detail-section"><label>完成时间</label><div class="muted">' + fmtDate(t.completedAt) + '</div></div>' : '') +
         '</div><div class="right-col">' +
-        '<div class="detail-section"><label>归属</label><select class="select" id="dTodoTab"><option' + (t.tab === '万澜' ? ' selected' : '') + '>万澜</option><option' + (t.tab === '天意' ? ' selected' : '') + '>天意</option></select></div>' +
+        (teamMode ? '' : '<div class="detail-section"><label>归属</label><select class="select" id="dTodoTab"><option' + (t.tab === '万澜' ? ' selected' : '') + '>万澜</option><option' + (t.tab === '天意' ? ' selected' : '') + '>天意</option></select></div>') +
         '<div class="detail-section"><label>类型</label><select class="select" id="dTodoSub"><option' + (t.sub === '临时任务' ? ' selected' : '') + '>临时任务</option><option' + (t.sub === '长线任务' ? ' selected' : '') + '>长线任务</option></select></div>' +
         '<div class="detail-section"><label>属性</label><select class="select" id="dTodoAttr">' + attrOpts + '</select></div>' +
         '<div class="detail-section"><label>关联项目</label><select class="select" id="dTodoProj">' + projOpts + '</select></div>' +
@@ -401,7 +404,7 @@
         var now = Date.now();
         state.todo.unshift({
           id: S.uid(), text: v,
-          tab: document.getElementById('todoTab').value,
+          tab: (document.getElementById('todoTab') || {value:'天意'}).value,
           sub: document.getElementById('todoSub').value,
           attr: [document.getElementById('todoAttr').value],
           project: document.getElementById('todoProj').value || '无',
@@ -440,7 +443,7 @@
         var text = document.getElementById('dTodoText').value.trim();
         if (!text) { toast('事项内容不能为空'); return; }
         t.text = text;
-        t.tab = document.getElementById('dTodoTab').value;
+        t.tab = (document.getElementById('dTodoTab') || {value:'天意'}).value;
         t.sub = document.getElementById('dTodoSub').value;
         t.attr = [document.getElementById('dTodoAttr').value];
         t.project = document.getElementById('dTodoProj').value || '无';
@@ -3067,7 +3070,7 @@
   // 复用 Project 模块对「ciroa中国线下拓展」项目的概况 + 客户跟进渲染，但整页铺满（不套 760px 弹窗），
   // 客户跟进信息多、操作频繁，全宽更顺手。该项目已从「项目」看板隐藏，单独作为一级板块，避免重复。
   var Ciroa = {
-    key: 'ciroa', label: 'ciroa线下', icon: '◈',
+    key: 'ciroa', label: teamMode ? '客户管理' : 'ciroa线下', icon: '◈',
     render: function (s) {
       var p = s.project.find(function (x) { return x.name === CIROA_PROJECT_NAME; });
       Project._detailId = p ? p.id : null;
@@ -3673,9 +3676,9 @@
   function buildModules() {
     var role = (currentUser && currentUser.role) || 'sales';
     if (role === 'boss' || role === 'admin') {
-      modules = [Overview, Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Memo];
+      modules = [Overview, Calendar, Todo, Project, Ciroa, Contacts, Memo];
     } else {
-      modules = [Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
+      modules = [Calendar, Todo, Project, Ciroa, Contacts, Memo];
     }
     byKey = {};
     modules.forEach(function (m) { byKey[m.key] = m; });
