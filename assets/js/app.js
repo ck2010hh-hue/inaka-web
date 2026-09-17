@@ -3077,15 +3077,15 @@
       Project._ownerKey = 'ciroa';
       Project._renderKey = 'ciroa';
       if (!p) {
-        return section('ciroa中国线下拓展', '核心主业务', '') +
-          '<div class="card"><div class="empty">尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。</div></div>';
+        return section(teamMode ? '客户管理' : 'ciroa中国线下拓展', '核心主业务', '') +
+          '<div class="card"><div class="empty">' + (teamMode ? '尚未创建「客户管理」主业务项目。请先在「项目」中创建项目（项目名填 ciroa中国线下拓展），本板块会自动同步。' : '尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。') + '</div></div>';
       }
       var tabs = '<div class="detail-tabs ciroa-tabs">' +
         '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">客户版图</button>' +
         '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
         '</div>';
       var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderCustMap(s, p);
-      return section('ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
+      return section(teamMode ? '客户管理' : 'ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
         '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
         Project.renderCustOverlay(s);
     },
