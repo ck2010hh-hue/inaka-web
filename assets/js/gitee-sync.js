@@ -37,8 +37,9 @@
   }
 
   // 统一 fetch：带网络异常转换
-  function request(token, method, repo, body) {
-    var url = API + '/repos/' + encodeRepo(repo) + '/contents/' + encodeURIComponent(PATH);
+  function request(token, method, repo, body, path) {
+    var filePath = path || PATH;
+    var url = API + '/repos/' + encodeRepo(repo) + '/contents/' + encodeURIComponent(filePath);
     var sep = url.indexOf('?') === -1 ? '?' : '&';
     url += sep + 'access_token=' + encodeURIComponent(token);
     var opts = { method: method, headers: { 'Accept': 'application/json' } };
@@ -60,8 +61,8 @@
   }
 
   // 获取文件内容与 sha；文件不存在时返回 null
-  function fetchRecord(token, repo) {
-    return request(token, 'GET', repo).then(function (j) {
+  function fetchRecord(token, repo, path) {
+    return request(token, 'GET', repo, null, path).then(function (j) {
       if (!j || !j.content) return null;
       var payload = b64Decode(j.content.replace(/\s/g, ''));
       return { payload: payload, sha: j.sha };
@@ -73,14 +74,14 @@
 
   // 上传（创建或更新）文件
   // Gitee 区分：POST 新建文件（无需 sha），PUT 更新文件（必须带 sha）。
-  function uploadRecord(token, repo, payload, sha) {
+  function uploadRecord(token, repo, payload, sha, path) {
     var body = {
       access_token: token,
       message: COMMIT_MSG,
       content: b64Encode(payload)
     };
     if (sha) body.sha = sha;
-    return request(token, sha ? 'PUT' : 'POST', repo, body);
+    return request(token, sha ? 'PUT' : 'POST', repo, body, path);
   }
 
   var GiteeSync = {
@@ -146,15 +147,17 @@
         });
     },
     // 拉取：返回 { payload: <加密包字符串> } 或 null（文件不存在）
-    pull: function (token, repo) {
-      return fetchRecord(token, repo).then(function (rec) {
+    // path 可动态传入（按用户分文件）
+    pull: function (token, repo, path) {
+      return fetchRecord(token, repo, path).then(function (rec) {
         return rec || null;
       });
     },
     // 推送：先读 sha，再 PUT；遇到 sha 冲突则抛出 CONFLICT 让上层合并后重试
-    push: function (token, repo, payload) {
-      return fetchRecord(token, repo).then(function (rec) {
-        return uploadRecord(token, repo, payload, rec && rec.sha);
+    // path 可动态传入（按用户分文件）
+    push: function (token, repo, payload, path) {
+      return fetchRecord(token, repo, path).then(function (rec) {
+        return uploadRecord(token, repo, payload, rec && rec.sha, path);
       }).catch(function (err) {
         if (err.status === 422 || /sha does not match|already exists|conflict/i.test(err.message || '')) {
           var e = new Error('云端已被其他设备更新，需要拉取合并后重试');

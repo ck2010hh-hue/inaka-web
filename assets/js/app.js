@@ -8,6 +8,8 @@
   var S = Store;
   var state = S.load();
   var currentKey = state._meta.lastPage || 'focus';
+  var teamMode = !!window.TEAM_MODE;
+  var currentUser = null;
   var pageHost = document.getElementById('pageHost');
   var navEl = document.getElementById('nav');
 
@@ -506,6 +508,8 @@
   var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
   var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商'];
   var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
+  var REL_STATUSES = ['合作关系', '朋友关系', '未知关系'];
+  var REL_LEVELS = ['密切', '普通', '陌生'];
   var CUST_POTENTIAL = ['大', '中', '小'];
   var CUST_POT_CLASS = { '大': 'potential-big', '中': 'potential-mid', '小': 'potential-small' };
   function custPotClass(p) { return CUST_POT_CLASS[p] || 'potential-small'; }
@@ -1977,6 +1981,16 @@
         }).join('') + '</div>';
       }
 
+      function radioGroup(group, opts, val) {
+        return '<div class="tag-group" id="d' + group + 'Tags">' +
+          opts.map(function (o) {
+            var on = o === (val || '') ? ' active' : '';
+            return '<span class="tag' + on + '" data-toggle="' + group + '" data-val="' + esc(o) + '">' + esc(o) + '</span>';
+          }).join('') + '</div>';
+      }
+      var relStatusTags = radioGroup('relStatus', REL_STATUSES, d.relStatus);
+      var relLevelTags = radioGroup('relLevel', REL_LEVELS, d.relLevel);
+
       var idTags = tagGroup('tag', BRANCHES, d.tags || [], TAG_COLORS);
       var attrTags = tagGroup('attr', ['品牌方 / 厂家', '代理 / 经销商', '流通商', '终端'], d.attrs || []);
       var channelTags = tagGroup('channel', ALL_CHANNELS, d.channels || []);
@@ -1996,6 +2010,8 @@
         '<div class="detail-section"><h4>基本信息</h4>' +
         '<div class="field-row"><label>公司名</label><input class="input" id="dCompany" value="' + esc(d.company || '') + '"></div>' +
         '<div class="field-row"><label>姓名</label><input class="input" id="dName" value="' + esc(d.name || '') + '"></div>' +
+        '<div class="detail-section"><label>关系状态</label>' + relStatusTags + '</div>' +
+        '<div class="detail-section"><label>关系程度</label>' + relLevelTags + '</div>' +
         '<div class="field-row"><label>角色</label><input class="input" id="dRole" value="' + esc(d.role || '') + '"></div>' +
         '<div class="field-row"><label>电话</label><input class="input" id="dPhone" value="' + esc(d.phone || '') + '"></div>' +
         '<div class="field-row"><label>所在地</label><input class="input" id="dLocation" value="' + esc(d.location || '') + '"></div>' +
@@ -2005,7 +2021,7 @@
         '<div class="detail-section"><label>公司属性（多选）</label>' + attrTags + '</div>' +
         '<div class="detail-section"><label>主要渠道（多选）</label>' + channelTags + '</div>' +
         '<div class="detail-section"><label>客户渠道类型（与客户编辑同步）</label><select class="select" id="dCustChannel"><option value="">未分类</option>' + CUST_CHANNELS.map(function (ch) { return '<option' + (ch === (d.channel || '') ? ' selected' : '') + '>' + esc(ch) + '</option>'; }).join('') + '</select></div>' +
-        '<div class="detail-section"><label>最近沟通</label><textarea class="textarea" id="dLast">' + esc(d.last || '') + '</textarea></div>' +
+        '<div class="detail-section"><label>关联和备忘</label><textarea class="textarea" id="dLast" placeholder="备注与该人脉因何关联、重要事项等">' + esc(d.last || '') + '</textarea></div>' +
         '<div class="detail-section"><h4>手动关联</h4>' + rels + '</div>' +
         '<div class="detail-section"><h4>关联项目</h4>' + relatedProjectsHtml + '</div>';
 
@@ -2077,6 +2093,10 @@
         d.attrs = activeVals('dAttrTags');
         d.channels = activeVals('dChannelTags');
         d.channel = document.getElementById('dCustChannel').value;
+        var relStatusEl = document.querySelector('#drelStatusTags .tag.active');
+        var relLevelEl = document.querySelector('#drelLevelTags .tag.active');
+        d.relStatus = relStatusEl ? relStatusEl.getAttribute('data-val') : '';
+        d.relLevel = relLevelEl ? relLevelEl.getAttribute('data-val') : '';
         d.updatedAt = Date.now();
         // 若该人脉关联了 Ciroa 客户，同步更新客户的渠道类型
         var syncChannel = d.channel;
@@ -2174,6 +2194,11 @@
         t.addEventListener('click', function () {
           var grp = t.getAttribute('data-toggle');
           if (grp === 'tag' || grp === 'attr' || grp === 'channel') t.classList.toggle('active');
+          else if (grp === 'relStatus' || grp === 'relLevel') {
+            var wrap = t.parentNode;
+            Array.prototype.slice.call(wrap.querySelectorAll('.tag')).forEach(function (sib) { sib.classList.remove('active'); });
+            t.classList.add('active');
+          }
         });
       });
       // 实时搜索 + 属性筛选
@@ -3071,6 +3096,79 @@
     }
   };
 
+  // 团队总览（老板/管理员视角）：聚合各销售的客户/待办/项目进展
+  var Overview = {
+    key: 'overview', icon: '📊', label: '总览',
+    render: function () {
+      return section('团队总览', '老板视角 · 各销售工作进展与客户情况', '') +
+        '<div class="ov-toolbar"><button class="btn sm" data-act="ovRefresh">刷新</button>' +
+        '<span class="ov-hint">每 60 秒自动刷新</span></div>' +
+        '<div id="ovBody" class="ov-block"><div class="loading">加载中…</div></div>';
+    },
+    load: function () {
+      return S.pullAllSales().then(function (rows) {
+        return rows.map(function (r) {
+          var st = r.state || {};
+          var todo = st.todo || [];
+          var done = todo.filter(function (t) { return t.done; }).length;
+          var rate = todo.length ? Math.round(done / todo.length * 100) : 0;
+          var cust = (st.ciroa && st.ciroa.customers) || [];
+          var proj = st.project || [];
+          var stages = {};
+          cust.forEach(function (c) { var k = c.stage || '未知'; stages[k] = (stages[k] || 0) + 1; });
+          return {
+            user: r.user,
+            todoTotal: todo.length, todoDone: done, rate: rate,
+            custTotal: cust.length, stages: stages,
+            projTotal: proj.length,
+            lastWrite: (st._meta && st._meta.lastWrite) || 0
+          };
+        });
+      });
+    },
+    renderData: function (rows) {
+      var host = document.getElementById('ovBody');
+      if (!host) return;
+      if (!rows || !rows.length) { host.innerHTML = '<div class="empty">暂无销售数据（请确认已配置同步且销售已登录过）</div>'; return; }
+      var cards = rows.map(function (d) {
+        var keys = Object.keys(d.stages);
+        var stageBars = keys.length ? keys.map(function (k) {
+          var pct = d.custTotal ? Math.round(d.stages[k] / d.custTotal * 100) : 0;
+          return '<div class="ov-bar-row"><span class="ov-bar-label">' + esc(k) + '</span>' +
+            '<span class="ov-bar"><span class="ov-bar-fill" style="width:' + pct + '%"></span></span>' +
+            '<span class="ov-bar-num">' + d.stages[k] + '</span></div>';
+        }).join('') : '<div class="ov-stat">无客户阶段数据</div>';
+        var upd = d.lastWrite ? new Date(d.lastWrite).toLocaleString() : '—';
+        return '<div class="ov-card">' +
+          '<div class="ov-title">' + esc(d.user.name) + ' <span class="ov-role">' + roleLabel(d.user.role) + '</span></div>' +
+          '<div class="ov-stat"><b>' + d.custTotal + '</b> 客户 · <b>' + d.projTotal + '</b> 项目</div>' +
+          '<div class="ov-stat">待办完成 <b>' + d.rate + '%</b>（' + d.todoDone + '/' + d.todoTotal + '）</div>' +
+          stageBars +
+          '<div class="ov-stat ov-upd">最近更新：' + upd + '</div>' +
+          '</div>';
+      }).join('');
+      host.innerHTML = '<div class="ov-cards">' + cards + '</div>';
+    },
+    onRender: function () {
+      var self = this;
+      self._render();
+      if (self._timer) clearInterval(self._timer);
+      self._timer = setInterval(function () {
+        if (!document.getElementById('ovBody')) { clearInterval(self._timer); return; }
+        self._render();
+      }, 60000);
+    },
+    _render: function () {
+      var self = this;
+      self.load().then(self.renderData).catch(function () {
+        var h = document.getElementById('ovBody');
+        if (h) h.innerHTML = '<div class="empty">加载失败，请检查同步设置或网络</div>';
+      });
+    }
+    ,
+    acts: { ovRefresh: function () { Overview._render(); } }
+  };
+
   var modules = [Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
   var byKey = {};
   modules.forEach(function (m) { byKey[m.key] = m; });
@@ -3471,24 +3569,130 @@
     S.reset(); state = S.getState(); renderPage(currentKey); toast('已清空');
   });
 
+  /* ================= 团队多用户模式 ================= */
+  var DEFAULT_ROSTER = [
+    { id: 'admin', name: '管理员(inaka)', role: 'admin', pin: '1234' },
+    { id: 'boss', name: '老板', role: 'boss', pin: '1234' },
+    { id: 's1', name: '销售-张三', role: 'sales', pin: '1234' },
+    { id: 's2', name: '销售-李四', role: 'sales', pin: '1234' },
+    { id: 's3', name: '销售-王五', role: 'sales', pin: '1234' },
+    { id: 's4', name: '销售-赵六', role: 'sales', pin: '1234' },
+    { id: 's5', name: '销售-孙七', role: 'sales', pin: '1234' }
+  ];
+  function roleLabel(r) { return ({ admin: '管理员', boss: '老板', sales: '销售' })[r] || r; }
+  function showTeamLogin() {
+    var overlay = document.getElementById('teamLogin');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'teamLogin';
+      overlay.className = 'team-login-mask';
+      document.body.appendChild(overlay);
+    }
+    loadRosterSafe(overlay);
+  }
+  function loadRosterSafe(overlay) {
+    if (S.loadRoster) {
+      S.loadRoster().then(function (roster) {
+        var list = (roster && Array.isArray(roster.users)) ? roster.users
+          : (Array.isArray(roster) ? roster : DEFAULT_ROSTER);
+        renderLoginForm(overlay, list);
+      }).catch(function () { renderLoginForm(overlay, DEFAULT_ROSTER); });
+    } else {
+      renderLoginForm(overlay, DEFAULT_ROSTER);
+    }
+  }
+  function renderLoginForm(overlay, list) {
+    overlay.innerHTML =
+      '<div class="team-login">' +
+      '<div class="tl-logo">inaka 团队工作台</div>' +
+      '<div class="tl-sub">选择你的身份并输入口令</div>' +
+      '<div class="field"><label>身份</label>' +
+      '<select class="input" id="loginName">' +
+      list.map(function (u) { return '<option value="' + esc(u.id) + '">' + esc(u.name) + '（' + roleLabel(u.role) + '）</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="field"><label>口令</label>' +
+      '<input class="input" id="loginPin" type="password" placeholder="4-6 位口令" autocomplete="off" /></div>' +
+      '<button class="btn tl-btn" id="loginSubmit">进入工作台</button>' +
+      '<div class="tl-hint">首次使用请在「设置」填写 Gitee 同步信息；口令默认 1234，可在管理员名册中修改。</div>' +
+      '</div>';
+    var submit = function () {
+      var id = document.getElementById('loginName').value;
+      var pin = document.getElementById('loginPin').value;
+      var u = null;
+      list.forEach(function (x) { if (x.id === id) u = x; });
+      if (!u) { toast('未找到该身份'); return; }
+      if ((u.pin || '') !== pin) { toast('口令错误'); return; }
+      currentUser = { id: u.id, name: u.name, role: u.role };
+      S.setTeamUser(currentUser);
+      bootTeamUser();
+    };
+    document.getElementById('loginSubmit').addEventListener('click', submit);
+    document.getElementById('loginPin').addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  }
+  function bootTeamUser() {
+    state = S.load();
+    if (currentUser && (currentUser.role === 'boss' || currentUser.role === 'admin')) currentKey = 'overview';
+    if (migrateProjectCats()) S.save(false);
+    buildModules();
+    renderIdentityBar();
+    go();
+    startAutoSync();
+    refreshSyncLabel();
+    var ov = document.getElementById('teamLogin');
+    if (ov && ov.parentNode) ov.parentNode.removeChild(ov);
+  }
+  function renderIdentityBar() {
+    var bar = document.getElementById('teamBar');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'teamBar';
+      bar.className = 'team-bar';
+      var app = document.querySelector('.app');
+      if (app) app.insertBefore(bar, app.querySelector('.main'));
+    }
+    var ru = currentUser || {};
+    bar.innerHTML = '<span class="tb-name">当前身份：' + esc(ru.name || '') + '（' + roleLabel(ru.role) + '）</span>' +
+      '<button class="btn ghost sm" id="teamLogout">退出</button>';
+    var lb = document.getElementById('teamLogout');
+    if (lb) lb.addEventListener('click', function () {
+      currentUser = null; S.setTeamUser(null);
+      try { location.reload(); } catch (e) { showTeamLogin(); }
+    });
+  }
+
+  // 统一渲染入口：异常时降级到日历页
+  function go() {
+    try {
+      renderPage(currentKey);
+    } catch (e) {
+      console.warn('render failed', e);
+      try { renderPage('focus'); } catch (_) {}
+    }
+  }
+  // 按角色重建模块列表（老板/管理员含总览；销售用常规 10 模块）
+  function buildModules() {
+    var role = (currentUser && currentUser.role) || 'sales';
+    if (role === 'boss' || role === 'admin') {
+      modules = [Overview, Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Memo];
+    } else {
+      modules = [Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
+    }
+    byKey = {};
+    modules.forEach(function (m) { byKey[m.key] = m; });
+    renderNav();
+  }
+
   /* ================= 初始化 ================= */
   function init() {
     // 本地存储配额超限提示（多见于备忘里照片过多）
     window.__onSaveError = function () {
       toast('⚠️ 本地存储空间已满，部分内容可能未保存。请删除一些带照片的备忘，或清理数据。');
     };
+    // 团队多用户模式：先登录，登录成功后再启动对应身份的工作台
+    if (teamMode) { showTeamLogin(); return; }
     var hasLocal = false;
     try { hasLocal = !!localStorage.getItem('inaka_workbench_state_v1'); } catch (e) {}
     if (migrateProjectCats()) S.save(false);
-    function go() {
-      try { renderPage(currentKey); }
-      catch (err) {
-        // 兜底：单个模块渲染异常不应让整个工作台白屏打不开（例如历史数据含悬空引用）
-        console.error('[inaka] 页面渲染异常，已降级到日历页：', err);
-        if (currentKey !== 'focus') { currentKey = 'focus'; try { renderPage('focus'); } catch (e2) {} }
-        else toast('页面渲染异常，请刷新或清理数据');
-      }
-    }
     if (!hasLocal) {
       fetch('data/seed.json').then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { if (j) { S.importJson(j); state = S.getState(); } })

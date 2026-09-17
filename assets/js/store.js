@@ -9,6 +9,15 @@
   var STORAGE_KEY = 'inaka_workbench_state_v1';
   var SETTINGS_KEY = 'inaka_workbench_settings_v1';
 
+  // 团队多用户模式：当前登录身份（null = 个人单用户模式）
+  var teamUser = null;
+  function storageKey() {
+    return teamUser ? ('inaka_team_state_' + teamUser.id) : STORAGE_KEY;
+  }
+  function teamPath() {
+    return teamUser ? ('state/' + teamUser.id + '.json') : null;
+  }
+
   // 打卡默认项（固定 id，载入时自动补齐；用户主动移除后记入 removedDefaults 不再补）
   var HABIT_DEFAULTS = [
     { id: 'def_walk', name: '散步', def: true },
@@ -87,7 +96,7 @@
 
   function load() {
     try {
-      var raw = localStorage.getItem(STORAGE_KEY);
+      var raw = localStorage.getItem(storageKey());
       if (raw) {
         var parsed = JSON.parse(raw);
         // 合并默认，防止缺字段
@@ -119,6 +128,9 @@
             c.location = c.location || '';
             c.brands = c.brands || '';
             c.last = c.last || '';
+            c.relStatus = c.relStatus || '';
+            c.relLevel = c.relLevel || '';
+            c.channel = c.channel || '';
             c.updatedAt = c.updatedAt || c.created || Date.now();
             // 数据自愈：清理指向已删除人脉的悬空关联（r.to 形如 p:<id> 或 <id>），避免网络图引用不存在节点而崩溃
             if (c.relations.length) {
@@ -192,7 +204,7 @@
   function save(notify) {
     state._meta.lastWrite = Date.now();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(storageKey(), JSON.stringify(state));
     } catch (e) {
       if (e && (e.name === 'QuotaExceededError' || e.code === 22)) {
         if (window.__onSaveError) { try { window.__onSaveError(); } catch (_) {} }
@@ -207,7 +219,7 @@
 
   function reset() {
     state = defaultState();
-    try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+    try { localStorage.removeItem(storageKey()); } catch (e) {}
     return state;
   }
 
@@ -501,7 +513,7 @@
     if (!giteeConfigured()) return Promise.reject(new Error('未配置 Gitee 同步'));
     state._meta.lastWrite = Date.now();
     return encryptState(state, s.syncPass).then(function (content) {
-      return window.GiteeSync.push(s.giteeToken, s.giteeRepo, content);
+      return window.GiteeSync.push(s.giteeToken, s.giteeRepo, content, teamPath() || GiteeSync.PATH);
     }).then(function () {
       state._meta.lastSync = Date.now();
       save(false);
@@ -510,7 +522,7 @@
   function giteePull() {
     var s = getSettings();
     if (!giteeConfigured()) return Promise.reject(new Error('未配置 Gitee 同步'));
-    return window.GiteeSync.pull(s.giteeToken, s.giteeRepo).then(function (rec) {
+    return window.GiteeSync.pull(s.giteeToken, s.giteeRepo, teamPath() || GiteeSync.PATH).then(function (rec) {
       if (!rec || !rec.payload) return null;
       return decryptState(rec.payload, s.syncPass).then(function (remoteState) {
         if (!remoteState || !Array.isArray(remoteState.todo)) return null;
@@ -640,6 +652,49 @@
     return { state: out, changed: canon(out) !== canon(local) };
   }
 
+  /* ---------- 团队多用户：老板/管理员聚合 ---------- */
+  function setTeamUser(u) { teamUser = u; }
+  function getTeamUser() { return teamUser; }
+  // 拉取指定用户的加密存档（老板总览用，只读、不合并）
+  function pullUser(id) {
+    var s = getSettings();
+    if (!giteeConfigured()) return Promise.reject(new Error('未配置同步'));
+    return window.GiteeSync.pull(s.giteeToken, s.giteeRepo, 'state/' + id + '.json').then(function (rec) {
+      if (!rec || !rec.payload) return null;
+      return decryptState(rec.payload, s.syncPass);
+    }).catch(function (err) {
+      if (err && /存档不是有效加密包|存档格式异常/.test(err.message || '')) {
+        var e = new Error('用户 ' + id + ' 的存档内容异常'); e.code = 'BIN_MISSING'; throw e;
+      }
+      throw err;
+    });
+  }
+  // 名册（明文 JSON，存于仓库 roster.json）：[{id,name,role,pin}]
+  function loadRoster() {
+    var s = getSettings();
+    if (!s.giteeToken || !s.giteeRepo) return Promise.resolve(null);
+    return window.GiteeSync.pull(s.giteeToken, s.giteeRepo, 'roster.json').then(function (rec) {
+      if (!rec || !rec.payload) return null;
+      try { return JSON.parse(rec.payload); } catch (e) { return null; }
+    }).catch(function () { return null; });
+  }
+  function saveRoster(roster) {
+    var s = getSettings();
+    if (!s.giteeToken || !s.giteeRepo) return Promise.reject(new Error('未配置同步'));
+    return window.GiteeSync.push(s.giteeToken, s.giteeRepo, JSON.stringify(roster), 'roster.json');
+  }
+  // 拉取全部销售文件并聚合（老板总览）
+  function pullAllSales() {
+    return loadRoster().then(function (roster) {
+      var list = (roster && Array.isArray(roster.users)) ? roster.users
+        : (Array.isArray(roster) ? roster : []);
+      var sales = list.filter(function (u) { return u && u.role === 'sales'; });
+      return Promise.all(sales.map(function (u) {
+        return pullUser(u.id).then(function (st) { return { user: u, state: st }; })
+          .catch(function () { return { user: u, state: null }; });
+      }));
+    });
+  }
   /* ---------- 导出 / 导入 ---------- */
   function exportJson() {
     return {
@@ -679,7 +734,13 @@
     resetSyncLink: resetSyncLink,
     onSave: onSave,
     exportJson: exportJson,
-    importJson: importJson
+    importJson: importJson,
+    setTeamUser: setTeamUser,
+    getTeamUser: getTeamUser,
+    pullUser: pullUser,
+    pullAllSales: pullAllSales,
+    loadRoster: loadRoster,
+    saveRoster: saveRoster
   };
 
 })(window);
