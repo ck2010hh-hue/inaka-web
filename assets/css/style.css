@@ -700,6 +700,10 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 /* 客户详情弹窗（层级高于项目弹窗） */
 .cust-detail { width: 760px; }
 #custOverlay { z-index: 70; }
+/* 字段清单收敛后的两栏布局：左右各自纵向留白一致，多选 chips 可换行 */
+.cust-detail-body > div:first-child { display: flex; flex-direction: column; gap: 16px; }
+.cust-detail-body .right-col { gap: 16px; }
+.cust-detail-body .chip-group { display: flex; flex-wrap: wrap; gap: 8px; }
 
 @media (max-width: 1000px) { .cust-board { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) {
