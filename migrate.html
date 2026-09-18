@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>inaka 工作台 · 换地址迁移助手</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,system-ui,"Microsoft YaHei",sans-serif;max-width:580px;margin:36px auto;padding:0 18px;color:#1c2b27;line-height:1.65}
+  h1{font-size:21px;margin:0 0 4px}
+  .sub{color:#5b6b66;font-size:13px;margin-bottom:14px}
+  .host{display:inline-block;background:#e7f1ed;color:#15604a;border-radius:8px;padding:4px 10px;font-size:13px;margin-bottom:14px}
+  .card{border:1px solid #d9e6e1;border-radius:12px;padding:16px 18px;margin:14px 0;background:#fafdfc}
+  .card b{font-size:15px}
+  .hint{color:#5b6b66;font-size:13px;margin:8px 0}
+  .warn{color:#b23a3a}
+  button{font-size:15px;padding:12px 18px;border:0;border-radius:10px;background:#15604a;color:#fff;cursor:pointer;margin-top:8px}
+  button.ghost{background:#e7f1ed;color:#15604a}
+  #log{margin-top:14px;font-size:13px;color:#15604a;white-space:pre-wrap;background:#f3f8f6;border-radius:8px;padding:10px;min-height:20px}
+  input[type=file]{margin-top:10px}
+</style>
+</head>
+<body>
+  <h1>inaka 工作台 · 换地址迁移助手</h1>
+  <div class="sub">这个页面只动你浏览器里工作台的两个存档键，不会改动任何其它数据。</div>
+  <div class="host">你当前所在域名：<span id="host"></span></div>
+
+  <div class="card">
+    <b>① 导出迁移包（请在旧地址 github.io 上点）</b>
+    <div class="hint">把你的 <b>同步配置 + 工作数据</b> 打成一个文件下载到本机。该文件含同步令牌，<span class="warn">属敏感信息，导入成功后请删除</span>。</div>
+    <button id="exp">下载迁移包</button>
+  </div>
+
+  <div class="card">
+    <b>② 导入迁移包（请在新地址 tcloudbaseapp.com 上点）</b>
+    <div class="hint">选择刚才下载的文件，自动写入本域名并刷新。完成后数据与同步配置即恢复，电脑/手机实时同步照旧。</div>
+    <button id="imp">选择文件并导入</button>
+    <input id="file" type="file" accept=".json,application/json" style="display:none" />
+  </div>
+
+  <div id="log">就绪。</div>
+
+<script>
+  var STATE_KEY = 'inaka_workbench_state_v1';
+  var SET_KEY = 'inaka_workbench_settings_v1';
+  var log = function (s) { document.getElementById('log').textContent += s + '\n'; };
+  document.getElementById('host').textContent = location.host;
+
+  document.getElementById('exp').onclick = function () {
+    try {
+      var pkg = {
+        v: 1,
+        ts: Date.now(),
+        state: localStorage.getItem(STATE_KEY),
+        settings: localStorage.getItem(SET_KEY)
+      };
+      if (!pkg.state && !pkg.settings) { log('当前域名下没有找到工作台数据，请确认你打开的是正确的旧地址。'); return; }
+      var blob = new Blob([JSON.stringify(pkg)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'inaka-migrate-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+      log('已生成迁移包并开始下载。\n如浏览器拦截了下载，请允许本页下载后重试。\n下载完成后，去新地址打开本助手点「导入」。');
+    } catch (e) { log('导出失败：' + e.message); }
+  };
+
+  document.getElementById('imp').onclick = function () { document.getElementById('file').click(); };
+  document.getElementById('file').onchange = function (e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var pkg = JSON.parse(r.result);
+        if (pkg.state != null) localStorage.setItem(STATE_KEY, pkg.state);
+        if (pkg.settings != null) localStorage.setItem(SET_KEY, pkg.settings);
+        log('已写入本域名（' + location.host + '）。\n1~2 秒后自动刷新，届时工作台即恢复，同步自动恢复。');
+        setTimeout(function () { location.reload(); }, 1600);
+      } catch (err) { log('导入失败：文件格式不对，请确认是「下载迁移包」生成的文件。' + err.message); }
+    };
+    r.readAsText(f);
+  };
+</script>
+</body>
+</html>
