@@ -544,6 +544,26 @@
     });
     return out;
   }
+  // 寄样 / 拜访（二值「有 / 无」）——2026-09-18 按 inaka 要求恢复到客户详情页。
+  // 历史数据（ciroa-customers.js 模板）存在字段错位与口径混入，例如 sample 里混入
+  // 「已拜访 / 未拜访」、visited 里混入「确认合作已下单」等合作状态值，故：
+  //   binYN()   读取侧归一 → 有 / 无 / ''（未填），保证任何非空旧值都能在下拉里被表示的出来，
+  //             不会出现「旧值无匹配 → 显示未填 → 一保存就被清空」。
+  //   binKeep() 保存侧兜底 → 用户没动过的项保留历史原始值，不静默改写。
+  function binYN(v) {
+    v = String(v == null ? '' : v).trim();
+    if (!v) return '';
+    // 否定口径（无 / 否 / 没有 / 未拜访 / 未寄样…）→ 无；其余任何非空旧值一律按「有」展示，
+    // 宁可展示为「有」也绝不显示成「未填」，避免保存时把有数据的记录清空。
+    return /^(无|否|没有|未|不)/.test(v) ? '无' : '有';
+  }
+  function binKeep(id, cur) {
+    var el = document.getElementById(id);
+    if (!el) return cur;
+    var raw = el.getAttribute('data-raw') || '';
+    var val = el.value || '';
+    return (val && val === binYN(raw)) ? raw : val;
+  }
   // 结算方式（原「合作模式」字段的现采 / 试销 / 账期，保留为独立字段）
   var CUST_MODES = ['现采', '试销', '账期'];
 
@@ -1373,6 +1393,12 @@
         '<select class="select" id="cProvince" data-stop>' + provOpts + '</select>' +
         '<select class="select" id="cCity" data-stop>' + cityOpts + '</select></div>' +
         '<div class="muted sm" style="margin-top:4px">选定后客户版图按省 / 市同步点亮</div>');
+      // 是否有寄样 / 是否有拜访（二值 有 / 无，2026-09-18 恢复）：
+      // data-raw 保留历史原始值，用户不改动该项时原样写回，避免旧口径被静默改写。
+      function ynSection(label, id, raw) {
+        return sec(label, '<select class="select" id="' + id + '" data-raw="' + esc(raw || '') + '" data-stop>' +
+          opts(['有', '无'], binYN(raw), '未填') + '</select>');
+      }
       return '<div class="overlay open" id="custOverlay"><div class="detail cust-detail">' +
         '<div class="detail-head"><div class="detail-title">编辑客户</div><div class="head-actions">' +
         '<button class="btn ghost danger" data-act="delCust" data-id="' + c.id + '">删除</button>' +
@@ -1384,6 +1410,8 @@
         sec('收件信息（收件人 / 地址 / 电话）', '<input class="input" id="cMailAddr" value="' + esc(c.mailAddr || '') + '">') +
         sec('收货信息（收件人 / 地址 / 电话）', '<input class="input" id="cShipAddr" value="' + esc(c.shipAddr || '') + '">') +
         locSection +
+        ynSection('是否有寄样', 'cSample', c.sample) +
+        ynSection('是否有拜访', 'cVisited', c.visited) +
         '</div><div class="right-col">' +
         sec('属性（可多选）', chipGroup(CUST_ATTRS, Project._custEditAttr, 'custAttrToggle')) +
         sec('渠道类型（可多选）', chipGroup(CUST_CHANNELS, Project._custEditChannel, 'custChannelToggle')) +
@@ -1572,7 +1600,7 @@
       addCust: function (el) {
         var now = Date.now();
         // 与详情页字段清单对齐；owner 保留默认值（仅用于列表展示，不再出现在详情页）
-        var nc = { id: S.uid(), name: '', person: '', phone: '', owner: '史霖', stage: '未合作', attrs: [], channels: [], mainChannel: '', mode: '', potential: '', note: '', mailAddr: '', shipAddr: '', province: '', city: '', contactId: '', timeline: [], created: now, updatedAt: now };
+        var nc = { id: S.uid(), name: '', person: '', phone: '', owner: '史霖', stage: '未合作', attrs: [], channels: [], mainChannel: '', mode: '', potential: '', note: '', sample: '', visited: '', mailAddr: '', shipAddr: '', province: '', city: '', contactId: '', timeline: [], created: now, updatedAt: now };
         state.customers = state.customers || [];
         state.customers.unshift(nc);
         Project._custDetailId = nc.id;
@@ -1597,8 +1625,9 @@
         var c = (state.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
         var name = document.getElementById('cName').value.trim();
         if (!name) { toast('客户名称不能为空'); return; }
-        // 只回写《客户字段清单》内的 14 项；清单外的历史字段（负责人/覆盖区域/网点数/寄样/拜访/
-        // 合作价格体系/采购数据/概况）一律不再读输入框，原样保留，避免被空值覆盖。
+        // 回写《客户字段清单》内的 14 项 + 2026-09-18 恢复的「是否有寄样 / 是否有拜访」2 项；
+        // 其余清单外历史字段（负责人 / 覆盖区域 / 网点数 / 合作价格体系 / 采购数据 / 概况 /
+        // 时间线）一律不读输入框，原样保留，避免被空值覆盖。
         c.name = name;
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
@@ -1613,6 +1642,9 @@
         c.potential = document.getElementById('cPotential').value;
         c.stage = document.getElementById('cStage').value;
         c.note = document.getElementById('cNote').value.trim();
+        // 是否有寄样 / 是否有拜访：未改动则保留历史原值，改动过才写入「有 / 无」（binKeep 兜底）
+        c.sample = binKeep('cSample', c.sample);
+        c.visited = binKeep('cVisited', c.visited);
         c.contactId = document.getElementById('cContact').value || '';
         // 若关联了人脉，同步更新人脉的渠道类型：客户多选（c.channels）的首个渠道回写为
         // 联系人单选（channel），与网络关系网络的渠道筛选（按 c.channel）保持一致。
