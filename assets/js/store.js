@@ -42,7 +42,18 @@
       habit: { items: clone(HABIT_DEFAULTS), punch: {}, removedDefaults: [] },
       // 战略
       strategy: [],
-      // 人脉
+      // 客户库（2026-09-18 起升为顶层）：「客户管理」板块的唯一客户档案源
+      // { id, name(公司名), person(联系人), phone(电话), mailAddr(收信信息), shipAddr(收货信息),
+      //   province, city, attrs[](属性，多选), channels[](渠道类型，多选), mainChannel(主营渠道),
+      //   stage(合作模式 '已合作'|'未合作'), stageDetail(旧阶段名，保留不丢),
+      //   note(备注栏), contactId(关联人脉),
+      //   overview, region, outlets, mode, sample, visited, potential, price, owner,
+      //   procurement[], timeline[], created, updatedAt }
+      customers: [],
+      // 销售跟进（已合作客户的月度销售流水，季度/年度由月度汇总衍生）
+      // { id, custId, ym('YYYY-MM'), amount, note, created, updatedAt }
+      salesLog: [],
+      // 人脉（人脉网络的节点来源 + 客户「关联人脉」的选项来源）
       contacts: [],
       // 微信好友（从微信好友资料截图提取的客户型好友，独立于人脉资源视图单独管理）
       wechatFriends: [],
@@ -656,7 +667,7 @@
   function mergeState(local, remote) {
     if (!remote) return { state: local, changed: false };
     var out = clone(local);
-    var ARR_KEYS = ['todo', 'project', 'notes', 'contacts', 'wechatFriends', 'strategy', 'growth', 'review', 'commLog'];
+    var ARR_KEYS = ['todo', 'project', 'notes', 'customers', 'salesLog', 'contacts', 'wechatFriends', 'strategy', 'growth', 'review', 'commLog'];
     ARR_KEYS.forEach(function (k) {
       if (k === 'project') {
         out[k] = mergeArrWith(local[k], remote[k], function (i) { return i.id; }, mergeProject);
