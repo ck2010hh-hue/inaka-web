@@ -1753,10 +1753,13 @@
     _VW: 760, _VH: 460,
 
     render: function (s) {
-      var inner = (this._tab === 'graph' ? this.renderGraph(s) : this.renderList(s)) + this.renderOverlay(s);
+      var inner;
+      if (this._tab === 'wechat') inner = this.renderWechat(s);
+      else inner = (this._tab === 'graph' ? this.renderGraph(s) : this.renderList(s)) + this.renderOverlay(s);
       var tabs = '<div class="view-tabs">' +
         '<button class="tab-btn ' + (this._tab === 'list' ? 'active' : '') + '" data-act="tab" data-view="list">人脉资源</button>' +
         '<button class="tab-btn ' + (this._tab === 'graph' ? 'active' : '') + '" data-act="tab" data-view="graph">关系网络</button>' +
+        '<button class="tab-btn ' + (this._tab === 'wechat' ? 'active' : '') + '" data-act="wechatTab">微信好友</button>' +
         '</div>';
       return section('人脉', '客户、品牌方、同行及内部伙伴的一体化管理', '') + tabs + inner;
     },
@@ -1838,6 +1841,133 @@
       }
 
       return form + overview + dist + branchUI;
+    },
+
+    /* ---------- 微信好友子视图（截图提取的客户型好友） ---------- */
+    renderWechat: function (s) {
+      var list = state.wechatFriends || [];
+      var q = (this._wechatSearch || '').toLowerCase();
+      var fStatus = this._wechatStatus || '';
+      var fChannel = this._wechatChannel || '';
+      var total = list.length;
+      var byStatus = {};
+      list.forEach(function (f) { var k = f.status || '待跟进'; byStatus[k] = (byStatus[k] || 0) + 1; });
+      var STATUSES = ['待跟进', '已联系', '有意向', '已合作', '暂不跟进'];
+      var statBar = STATUSES.map(function (k) {
+        return '<div class="stat"><div class="num">' + (byStatus[k] || 0) + '</div><div class="label">' + k + '</div></div>';
+      }).join('');
+      var toolbar =
+        '<div class="card"><div class="overview">' + statBar + '</div></div>' +
+        '<div class="card" style="margin-top:12px"><div class="filter-bar">' +
+        '<input class="input search" id="wtSearch" type="text" placeholder="搜索备注名/昵称/微信号/公司/品牌…" value="' + esc(this._wechatSearch || '') + '">' +
+        '<select class="select" id="wtStatus"><option value="">全部状态</option>' + STATUSES.map(function (k) { return '<option' + (fStatus === k ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select>' +
+        '<select class="select" id="wtChannel"><option value="">全部渠道</option>' + ALL_CHANNELS.map(function (ch) { return '<option' + (fChannel === ch ? ' selected' : '') + '>' + esc(ch) + '</option>'; }).join('') + '</select>' +
+        '<button class="btn primary" data-act="wechatAdd">+ 新增好友</button>' +
+        '<button class="btn ghost sm" data-act="wechatImport">导入CSV</button>' +
+        '<input type="file" id="wtImportFile" accept=".csv" style="display:none">' +
+        '<button class="btn ghost sm" data-act="wechatExport">导出CSV</button>' +
+        '</div></div>';
+      var table = '<div id="wtTableHost">' + this._wechatRowsHtml(s) + '</div>';
+      var overlay = this.renderWechatForm(null);
+      return toolbar + table + overlay;
+    },
+
+    _wechatRowsHtml: function (s) {
+      var list = state.wechatFriends || [];
+      var q = (this._wechatSearch || '').toLowerCase();
+      var fStatus = this._wechatStatus || '';
+      var fChannel = this._wechatChannel || '';
+      var filtered = list.filter(function (f) {
+        if (fStatus && (f.status || '待跟进') !== fStatus) return false;
+        if (fChannel && (f.channels || []).indexOf(fChannel) < 0) return false;
+        if (q) {
+          var hay = [f.name, f.nickname, f.wxid, f.phone, f.company, f.role, f.brands, f.note, f.tags].join(' ').toLowerCase();
+          if (hay.indexOf(q) < 0) return false;
+        }
+        return true;
+      });
+      if (!filtered.length) return '<div class="card" style="margin-top:12px"><div class="empty">暂无匹配的微信好友。点击「新增好友」录入，或把截图发我提取。</div></div>';
+      var rows = filtered.map(function (f) {
+        var idTags = (f.identity || []).map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(' ');
+        var chTags = (f.channels || []).map(function (t) { return '<span class="badge">' + esc(t) + '</span>'; }).join(' ');
+        var st = f.status || '待跟进';
+        var stCls = (st === '已合作' || st === '有意向') ? 'done' : 'pending';
+        return '<tr>' +
+          '<td>' + esc(f.name || '') + (f.nickname ? '<div class="muted sm">' + esc(f.nickname) + '</div>' : '') + '</td>' +
+          '<td>' + esc(f.wxid || '') + '</td>' +
+          '<td>' + esc(f.phone || '') + '</td>' +
+          '<td>' + esc(f.region || '') + '</td>' +
+          '<td>' + esc(f.company || '') + '</td>' +
+          '<td>' + idTags + '</td>' +
+          '<td>' + chTags + '</td>' +
+          '<td><span class="badge ' + stCls + '">' + esc(st) + '</span></td>' +
+          '<td class="td-actions"><button class="x edit" data-act="wechatEdit" data-id="' + f.id + '" title="编辑">✎</button><button class="x" data-act="wechatDel" data-id="' + f.id + '" title="删除">✕</button></td>' +
+          '</tr>';
+      }).join('');
+      return '<div class="card" style="margin-top:12px;overflow:auto"><table class="wt-table"><thead><tr>' +
+        '<th>备注名/昵称</th><th>微信号</th><th>电话</th><th>地区</th><th>公司名</th><th>身份标签</th><th>主要渠道</th><th>状态</th><th>操作</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    },
+
+    renderWechatForm: function (f) {
+      f = f || {};
+      var IDENT = ['客户（下游）', '品牌方/厂家（上游）', '同行及行业人士（业内）', '公司及合作伙伴（内部）'];
+      var ATTRS = ['品牌方/厂家', '代理/经销商', '流通商', '终端'];
+      var STATUS = ['待跟进', '已联系', '有意向', '已合作', '暂不跟进'];
+      function active(group, items) {
+        return items.map(function (t) {
+          var on = (f[group] || []).indexOf(t) >= 0 ? ' active' : '';
+          return '<span class="tag' + on + '" data-toggle="wt" data-grp="' + group + '" data-val="' + esc(t) + '">' + esc(t) + '</span>';
+        }).join('');
+      }
+      return '<div class="overlay" id="wtOverlay">' +
+        '<div class="detail"><div class="detail-head"><div class="detail-title">' + (f.id ? '编辑微信好友' : '新增微信好友') + '</div>' +
+        '<div class="head-actions"><button class="btn ghost" data-act="wechatClose">关闭</button></div></div>' +
+        '<div class="detail-body"><div class="form-grid">' +
+        '<div><label>备注名 / 微信名</label><input class="input" id="wfName" value="' + esc(f.name || '') + '"></div>' +
+        '<div><label>昵称</label><input class="input" id="wfNickname" value="' + esc(f.nickname || '') + '"></div>' +
+        '<div><label>微信号</label><input class="input" id="wfWxid" value="' + esc(f.wxid || '') + '"></div>' +
+        '<div><label>电话</label><input class="input" id="wfPhone" value="' + esc(f.phone || '') + '"></div>' +
+        '<div><label>地区</label><input class="input" id="wfRegion" value="' + esc(f.region || '') + '"></div>' +
+        '<div><label>来源</label><input class="input" id="wfSource" value="' + esc(f.source || '') + '"></div>' +
+        '<div><label>添加时间</label><input class="input" type="date" id="wfAddTime" value="' + esc(f.addTime || '') + '"></div>' +
+        '<div><label>标签</label><input class="input" id="wfTags" placeholder="多个用空格分隔" value="' + esc(f.tags || '') + '"></div>' +
+        '<div><label>公司名</label><input class="input" id="wfCompany" value="' + esc(f.company || '') + '"></div>' +
+        '<div><label>角色 / 职务</label><input class="input" id="wfRole" value="' + esc(f.role || '') + '"></div>' +
+        '<div class="full"><label>主营品牌 / 品类</label><input class="input" id="wfBrands" value="' + esc(f.brands || '') + '"></div>' +
+        '<div class="full"><label>个性签名</label><textarea class="textarea" id="wfSignature">' + esc(f.signature || '') + '</textarea></div>' +
+        '<div class="full"><label>备注</label><textarea class="textarea" id="wfNote">' + esc(f.note || '') + '</textarea></div>' +
+        '<div class="full"><label>身份标签（多选）</label><div class="tag-group" id="wfIdentity">' + active('identity', IDENT) + '</div></div>' +
+        '<div class="full"><label>公司属性（多选）</label><div class="tag-group" id="wfAttr">' + active('companyAttr', ATTRS) + '</div></div>' +
+        '<div class="full"><label>主要渠道（多选）</label><div class="tag-group" id="wfChannels">' + active('channels', ALL_CHANNELS) + '</div></div>' +
+        '<div class="full"><label>跟进状态</label><select class="select" id="wfStatus">' + STATUS.map(function (k) { return '<option' + (k === (f.status || '待跟进') ? ' selected' : '') + '>' + k + '</option>'; }).join('') + '</select></div>' +
+        '</div>' +
+        '<div style="margin-top:12px;display:flex;gap:10px;justify-content:flex-end"><button class="btn primary" data-act="wechatSave" data-id="' + (f.id || '') + '">保存</button></div>' +
+        '</div></div></div>';
+    },
+
+    renderWechatTable: function (s) {
+      var host = document.getElementById('wtTableHost');
+      if (host) host.innerHTML = this._wechatRowsHtml(s);
+    },
+    openWechatOverlay: function () { var o = document.getElementById('wtOverlay'); if (o) o.classList.add('open'); },
+    closeWechatOverlay: function () { var o = document.getElementById('wtOverlay'); if (o) o.classList.remove('open'); },
+    bindWechatForm: function () {
+      document.querySelectorAll('#wtOverlay [data-toggle="wt"]').forEach(function (t) {
+        t.addEventListener('click', function () { t.classList.toggle('active'); });
+      });
+    },
+    parseCsvLine: function (line) {
+      var vals = []; var cur = ''; var inQ = false;
+      for (var i = 0; i < line.length; i++) {
+        var c = line[i], n = line[i + 1];
+        if (c === '"' && inQ && n === '"') { cur += '"'; i++; }
+        else if (c === '"') { inQ = !inQ; }
+        else if (c === ',' && !inQ) { vals.push(cur); cur = ''; }
+        else { cur += c; }
+      }
+      vals.push(cur);
+      return vals;
     },
 
     renderBranches: function (s) {
@@ -2400,7 +2530,108 @@
       },
       netZoomIn: function () { Contacts.setNetZoom(Contacts._netScale * 1.25); },
       netZoomOut: function () { Contacts.setNetZoom(Contacts._netScale / 1.25); },
-      netZoomReset: function () { Contacts.resetNetView(); }
+      netZoomReset: function () { Contacts.resetNetView(); },
+
+      /* ---------- 微信好友行为 ---------- */
+      wechatTab: function () { Contacts._tab = 'wechat'; Contacts._wechatSearch = ''; Contacts._wechatStatus = ''; Contacts._wechatChannel = ''; renderPage('contacts'); },
+      wechatAdd: function () {
+        Contacts._wtEditId = '';
+        var host = document.getElementById('wtOverlay');
+        if (host) { host.outerHTML = Contacts.renderWechatForm(null); Contacts.bindWechatForm(); Contacts.openWechatOverlay(); }
+      },
+      wechatEdit: function (el) {
+        var id = el.dataset.id; if (!id) return;
+        var f = (state.wechatFriends || []).find(function (x) { return x.id === id; }); if (!f) return;
+        Contacts._wtEditId = id;
+        var host = document.getElementById('wtOverlay');
+        if (host) { host.outerHTML = Contacts.renderWechatForm(f); Contacts.bindWechatForm(); Contacts.openWechatOverlay(); }
+      },
+      wechatSave: function (el) {
+        var id = el.dataset.id || Contacts._wtEditId || '';
+        function activeVals(grp) {
+          return Array.prototype.slice.call(document.querySelectorAll('#wtOverlay .tag[data-grp="' + grp + '"].active')).map(function (t) { return t.getAttribute('data-val'); });
+        }
+        var data = {
+          name: document.getElementById('wfName').value.trim(),
+          nickname: document.getElementById('wfNickname').value.trim(),
+          wxid: document.getElementById('wfWxid').value.trim(),
+          phone: document.getElementById('wfPhone').value.trim(),
+          region: document.getElementById('wfRegion').value.trim(),
+          source: document.getElementById('wfSource').value.trim(),
+          addTime: document.getElementById('wfAddTime').value.trim(),
+          tags: document.getElementById('wfTags').value.trim(),
+          company: document.getElementById('wfCompany').value.trim(),
+          role: document.getElementById('wfRole').value.trim(),
+          brands: document.getElementById('wfBrands').value.trim(),
+          signature: document.getElementById('wfSignature').value.trim(),
+          note: document.getElementById('wfNote').value.trim(),
+          status: document.getElementById('wfStatus').value,
+          identity: activeVals('identity'),
+          companyAttr: activeVals('companyAttr'),
+          channels: activeVals('channels')
+        };
+        if (!data.name && !data.nickname) { toast('请至少填写备注名或昵称'); return; }
+        if (id) {
+          var f = (state.wechatFriends || []).find(function (x) { return x.id === id; });
+          if (f) Object.assign(f, data, { updatedAt: Date.now() });
+        } else {
+          data.id = S.uid(); data.created = Date.now(); data.updatedAt = Date.now();
+          (state.wechatFriends = state.wechatFriends || []).unshift(data);
+        }
+        saveRender();
+        Contacts.closeWechatOverlay();
+        toast('已保存');
+      },
+      wechatDel: function (el) {
+        var id = el.dataset.id || Contacts._wtEditId; if (!id) return;
+        if (!ask('删除该微信好友及其所有记录？此操作不可恢复。')) return;
+        state.wechatFriends = (state.wechatFriends || []).filter(function (x) { return x.id !== id; });
+        if (Contacts._wtEditId === id) Contacts._wtEditId = '';
+        saveRender();
+        toast('已删除');
+      },
+      wechatClose: function () { Contacts.closeWechatOverlay(); },
+      wechatExport: function () {
+        var rows = state.wechatFriends || [];
+        var keys = ['id','name','nickname','wxid','phone','region','source','addTime','tags','company','role','brands','signature','note','status','identity','companyAttr','channels'];
+        var csv = '﻿' + keys.join(',') + '\n' + rows.map(function (f) {
+          return keys.map(function (k) {
+            var v = (f[k] == null ? '' : (Array.isArray(f[k]) ? f[k].join(' ') : String(f[k])));
+            if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+            return v;
+          }).join(',');
+        }).join('\n');
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        a.download = '微信好友_' + new Date().toISOString().slice(0,10) + '.csv';
+        a.click();
+      },
+      wechatImport: function () {
+        var inp = document.getElementById('wtImportFile');
+        if (!inp) return; inp.click();
+        inp.onchange = function () {
+          var file = inp.files[0]; if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function (e) {
+            var text = (e.target.result || '').replace(/^﻿/, '');
+            var lines = text.split(/\r?\n/).filter(Boolean);
+            if (lines.length < 2) return toast('CSV 为空');
+            var header = lines[0].split(',').map(function (h) { return h.trim(); });
+            var added = 0;
+            for (var i = 1; i < lines.length; i++) {
+              var vals = Contacts.parseCsvLine(lines[i]);
+              var obj = {};
+              header.forEach(function (h, idx) { obj[h] = vals[idx] || ''; });
+              ['identity','companyAttr','channels'].forEach(function (k) { obj[k] = obj[k] ? obj[k].split(/\s+/).filter(Boolean) : []; });
+              if (!obj.id) obj.id = S.uid();
+              if (obj.name || obj.nickname) { (state.wechatFriends = state.wechatFriends || []).push(obj); added++; }
+            }
+            saveRender();
+            toast('已导入 ' + added + ' 条');
+          };
+          reader.readAsText(file);
+        };
+      }
     },
 
     /* ---------- 后绑定（每次 render 后由 renderPage 调用） ---------- */
@@ -2513,6 +2744,16 @@
       // 详情 overlay 背景点击关闭
       var ov = document.getElementById('contactOverlay');
       if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'contactOverlay') { self._detailId = null; renderPage('contacts'); } });
+      // 微信好友视图：搜索 / 筛选 / 表单标签
+      if (this._tab === 'wechat') {
+        var ws = document.getElementById('wtSearch');
+        if (ws) ws.addEventListener('input', function (e) { Contacts._wechatSearch = e.target.value.trim().toLowerCase(); Contacts.renderWechatTable(state); });
+        var wst = document.getElementById('wtStatus');
+        if (wst) wst.addEventListener('change', function (e) { Contacts._wechatStatus = e.target.value; renderPage('contacts'); });
+        var wch = document.getElementById('wtChannel');
+        if (wch) wch.addEventListener('change', function (e) { Contacts._wechatChannel = e.target.value; renderPage('contacts'); });
+        Contacts.bindWechatForm();
+      }
     }
   };
 
