@@ -511,6 +511,11 @@
   var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
   var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商'];
   var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
+  // 沟通记录（ciroa 线下 → 沟通记录）：陌生/半熟联系人初步留存的可选项
+  // 客户属性 / 渠道类型 均可多选；所在地按「省」（含「未知」），省份列表复用 window.REGION_DATA
+  var COMM_ATTRS = ['代理商/经销商', '流通商/批发商', '品牌方', '终端实体', '包场商', '供应链'];
+  var COMM_CHANNELS = ['高超/精超', '新零售/新美妆', 'KA卖场', '传统CS', '便利', '团购特渠', '私域', '多渠道', '其他'];
+  var COMM_PROV_UNKNOWN = '未知';
   var REL_STATUSES = ['合作关系', '朋友关系', '未知关系'];
   var REL_LEVELS = ['密切', '普通', '陌生'];
   var CUST_POTENTIAL = ['大', '中', '小'];
@@ -633,6 +638,11 @@
     _commEditId: null,
     _commSearch: '',
     _commFilter: 'all',
+    // 沟通记录多选缓存：新增表单用 _commAttr/_commChannel，行内编辑用 _commEditAttr/_commEditChannel
+    _commAttr: [],
+    _commChannel: [],
+    _commEditAttr: [],
+    _commEditChannel: [],
     _renderKey: 'project',
     _ownerKey: 'project',
     // 客户版图视图状态：map=中国地图 / region=区域清单 / province=某省客户明细 / attr=属性分布
@@ -1088,8 +1098,31 @@
         if (f === 'noreply' && r.replied) return false;
         if (f === 'follow' && !r.followUp) return false;
         if (!q) return true;
-        return [r.wx, r.name, r.biz, r.result].join(' ').toLowerCase().indexOf(q) >= 0;
+        return [r.wx, r.name, r.province, (r.attrs || []).join(' '), (r.channels || []).join(' '), r.result]
+          .join(' ').toLowerCase().indexOf(q) >= 0;
       }).sort(function (a, b) { return (b.greetAt || 0) - (a.greetAt || 0); });
+
+      // 多选 chip 组（act：commTA/commTC/commEA/commEC；选中态由 Project 上的数组缓存驱动）
+      function chipGroup(act, options, selected) {
+        selected = selected || [];
+        return '<div class="comm-multi">' + options.map(function (o) {
+          return '<span class="comm-chip' + (selected.indexOf(o) >= 0 ? ' on' : '') + '"' +
+            ' data-act="' + act + '" data-v="' + esc(o) + '">' + esc(o) + '</span>';
+        }).join('') + '</div>';
+      }
+      // 省份下拉（复用客户版图同一份 REGION_DATA），末尾附「未知」
+      function provSelect(id, cur) {
+        var names = Object.keys((typeof window.REGION_DATA !== 'undefined') ? window.REGION_DATA : {});
+        var opts = ['<option value="">选择省…</option>'].concat(names.map(function (pv) {
+          return '<option' + (pv === cur ? ' selected' : '') + '>' + esc(pv) + '</option>';
+        })).concat(['<option value="' + COMM_PROV_UNKNOWN + '"' + (cur === COMM_PROV_UNKNOWN ? ' selected' : '') + '>' + COMM_PROV_UNKNOWN + '</option>']);
+        return '<select class="select" id="' + id + '">' + opts.join('') + '</select>';
+      }
+      // 多值以 tag 展示
+      function tagsTxt(arr) {
+        arr = arr || [];
+        return arr.length ? arr.map(function (o) { return '<span class="tag sm">' + esc(o) + '</span>'; }).join(' ') : '<span class="muted">—</span>';
+      }
 
       var total = all.length;
       var replied = all.filter(function (r) { return r.replied; }).length;
@@ -1104,16 +1137,18 @@
       var form = '<div class="card comm-form">' +
         '<div class="grid cols-3">' +
         '<div class="field" style="margin:0"><label>微信名</label><input class="input" id="commWx" placeholder="微信昵称 / 备注名（可直接粘贴）"></div>' +
+        '<div class="field" style="margin:0"><label>所在地（省）</label>' + provSelect('commProv', '') + '</div>' +
         '<div class="field" style="margin:0"><label>姓名 / 电话</label><input class="input" id="commNm" placeholder="姓名、手机号"></div>' +
-        '<div class="field" style="margin:0"><label>业态 / 身份</label><input class="input" id="commBiz" placeholder="如：日化经销商 / 品牌方 / 同行 / 终端"></div>' +
         '</div>' +
+        '<div class="field" style="margin:12px 0 0"><label>客户属性（可多选）</label>' + chipGroup('commTA', COMM_ATTRS, this._commAttr) + '</div>' +
+        '<div class="field" style="margin:12px 0 0"><label>渠道类型（可多选）</label>' + chipGroup('commTC', COMM_CHANNELS, this._commChannel) + '</div>' +
         '<div class="field" style="margin:12px 0 0"><label>初步沟通结果</label><input class="input" id="commRes" placeholder="对方回应、初步结论（例：已加微信未细聊 / 报过价 / 疑似已转行）"></div>' +
         '<div class="comm-form-foot"><span class="muted sm">「打招呼时间」在保存时自动记录为当前时间 · 输入框内回车即可保存</span>' +
         '<button class="btn primary" data-act="addComm">+ 保存记录</button></div>' +
         '</div>';
 
       var head = '<thead><tr>' +
-        '<th>微信名</th><th>姓名 / 电话</th><th>业态和身份</th><th>打招呼时间</th>' +
+        '<th>微信名</th><th>所在地</th><th>姓名 / 电话</th><th>客户属性</th><th>渠道类型</th><th>打招呼时间</th>' +
         '<th>是否有反馈</th><th>初步沟通结果</th><th>值得继续跟踪</th><th>操作</th>' +
         '</tr></thead>';
 
@@ -1125,7 +1160,7 @@
 
       var rows;
       if (!filtered.length) {
-        rows = '<tr><td colspan="8"><div class="empty">' + (total ? '无匹配记录' : '还没有沟通记录，从上方添加第一条 ↑') + '</div></td></tr>';
+        rows = '<tr><td colspan="10"><div class="empty">' + (total ? '无匹配记录' : '还没有沟通记录，从上方添加第一条 ↑') + '</div></td></tr>';
       } else {
         rows = filtered.map(function (r) {
           var days = r.greetAt ? Math.floor((Date.now() - r.greetAt) / 86400000) : 0;
@@ -1137,8 +1172,10 @@
           if (self._commEditId === r.id) {
             return '<tr class="comm-row editing">' +
               '<td><input class="input sm-input" id="ceWx_' + esc(r.id) + '" value="' + esc(r.wx) + '"></td>' +
+              '<td>' + provSelect('ceProv_' + r.id, r.province) + '</td>' +
               '<td><input class="input sm-input" id="ceNm_' + esc(r.id) + '" value="' + esc(r.name) + '"></td>' +
-              '<td><input class="input sm-input" id="ceBiz_' + esc(r.id) + '" value="' + esc(r.biz) + '"></td>' +
+              '<td>' + chipGroup('commEA', COMM_ATTRS, self._commEditAttr) + '</td>' +
+              '<td>' + chipGroup('commEC', COMM_CHANNELS, self._commEditChannel) + '</td>' +
               '<td><div class="comm-time">' + timeTxt(r.greetAt) + '</div>' + waitTxt + '</td>' +
               '<td><span class="comm-check ' + repliedCls + '" data-act="toggleCommReplied" data-id="' + esc(r.id) + '" title="点击切换">' + repliedLbl + '</span></td>' +
               '<td><input class="input sm-input" id="ceRes_' + esc(r.id) + '" value="' + esc(r.result) + '"></td>' +
@@ -1149,8 +1186,10 @@
           }
           return '<tr class="comm-row">' +
             '<td class="comm-name">' + esc(r.wx || '—') + '</td>' +
+            '<td>' + esc(r.province || '—') + '</td>' +
             '<td>' + esc(r.name || '—') + '</td>' +
-            '<td>' + esc(r.biz || '—') + '</td>' +
+            '<td class="comm-multi-cell">' + tagsTxt(r.attrs) + '</td>' +
+            '<td class="comm-multi-cell">' + tagsTxt(r.channels) + '</td>' +
             '<td><div class="comm-time">' + timeTxt(r.greetAt) + '</div>' + waitTxt + '</td>' +
             '<td><span class="comm-check ' + repliedCls + '" data-act="toggleCommReplied" data-id="' + esc(r.id) + '" title="点击勾选 / 取消">' + repliedLbl + '</span></td>' +
             '<td class="comm-result">' + esc(r.result || '—') + '</td>' +
@@ -1162,7 +1201,7 @@
       }
 
       var toolbar = '<div class="cust-toolbar">' +
-        '<input class="input cust-search" id="commSearch" type="text" placeholder="搜索微信名 / 姓名 / 业态 / 沟通结果…" value="' + esc(this._commSearch) + '">' +
+        '<input class="input cust-search" id="commSearch" type="text" placeholder="搜索微信名 / 姓名 / 所在地 / 客户属性 / 渠道 / 沟通结果…" value="' + esc(this._commSearch) + '">' +
         '<span class="muted sm">共 ' + total + ' 条 · 当前显示 ' + filtered.length + ' 条</span>' +
         '</div>';
 
@@ -1258,7 +1297,7 @@
         });
         saveRender();
       },
-      projTab: function (el) { Project._projTab = el.dataset.t; Project._commEditId = null; renderPage(Project._renderKey); },
+      projTab: function (el) { Project._projTab = el.dataset.t; Project._commEditId = null; Project._commEditAttr = []; Project._commEditChannel = []; renderPage(Project._renderKey); },
       custAttr: function (el) { Project._custAttr = el.dataset.v; renderPage(Project._renderKey); },
       custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage(Project._renderKey); },
       custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage(Project._renderKey); },
@@ -1302,17 +1341,31 @@
       commFilter: function (el) { Project._commFilter = el.dataset.v || 'all'; renderPage(Project._renderKey); },
       addComm: function () {
         function val(id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; }
-        var wx = val('commWx'), nm = val('commNm'), biz = val('commBiz'), res = val('commRes');
+        var wx = val('commWx'), nm = val('commNm'), res = val('commRes'), prov = val('commProv');
         if (!wx && !nm) { toast('请至少填写「微信名」或「姓名/电话」'); return; }
         var now = Date.now();
         state.commLog = state.commLog || [];
         state.commLog.unshift({
-          id: S.uid(), wx: wx, name: nm, biz: biz, result: res,
-          greetAt: now, replied: false, followUp: false, created: now, updatedAt: now
+          id: S.uid(), wx: wx, province: prov, name: nm,
+          attrs: (Project._commAttr || []).slice(), channels: (Project._commChannel || []).slice(),
+          result: res, greetAt: now, replied: false, followUp: false, created: now, updatedAt: now
         });
+        Project._commAttr = []; Project._commChannel = [];
         saveRender();
         toast('已记录打招呼时间 ' + new Date(now).toLocaleString());
       },
+      // 多选 chip 就地切换：只改数组缓存 + 切换 class，不整页重渲染（避免打断表单里已输入的文字）
+      _toggleChip: function (el, key) {
+        var v = el.dataset.v;
+        var arr = Project[key] || (Project[key] = []);
+        var i = arr.indexOf(v);
+        if (i >= 0) arr.splice(i, 1); else arr.push(v);
+        if (el.classList && el.classList.toggle) el.classList.toggle('on');
+      },
+      commTA: function (el) { Project.acts._toggleChip(el, '_commAttr'); },
+      commTC: function (el) { Project.acts._toggleChip(el, '_commChannel'); },
+      commEA: function (el) { Project.acts._toggleChip(el, '_commEditAttr'); },
+      commEC: function (el) { Project.acts._toggleChip(el, '_commEditChannel'); },
       toggleCommReplied: function (el) {
         var r = (state.commLog || []).find(function (x) { return x.id === el.dataset.id; }); if (!r) return;
         r.replied = !r.replied;
@@ -1326,17 +1379,29 @@
         r.updatedAt = Date.now();
         saveRender();
       },
-      editComm: function (el) { Project._commEditId = el.dataset.id; renderPage(Project._renderKey); },
-      cancelComm: function () { Project._commEditId = null; renderPage(Project._renderKey); },
+      editComm: function (el) {
+        var id = el.dataset.id;
+        Project._commEditId = id;
+        var r = (state.commLog || []).find(function (x) { return x.id === id; });
+        Project._commEditAttr = r ? (r.attrs || []).slice() : [];
+        Project._commEditChannel = r ? (r.channels || []).slice() : [];
+        renderPage(Project._renderKey);
+      },
+      cancelComm: function () { Project._commEditId = null; Project._commEditAttr = []; Project._commEditChannel = []; renderPage(Project._renderKey); },
       saveComm: function (el) {
         var id = el.dataset.id || Project._commEditId; if (!id) return;
         var r = (state.commLog || []).find(function (x) { return x.id === id; }); if (!r) return;
         function val(k) { var e = document.getElementById(k); return e ? e.value.trim() : ''; }
         var wx = val('ceWx_' + id), nm = val('ceNm_' + id);
         if (!wx && !nm) { toast('「微信名」和「姓名/电话」不能同时为空'); return; }
-        r.wx = wx; r.name = nm; r.biz = val('ceBiz_' + id); r.result = val('ceRes_' + id);
+        r.wx = wx; r.name = nm;
+        r.province = val('ceProv_' + id);
+        r.attrs = (Project._commEditAttr || []).slice();
+        r.channels = (Project._commEditChannel || []).slice();
+        r.result = val('ceRes_' + id);
         r.updatedAt = Date.now();
         Project._commEditId = null;
+        Project._commEditAttr = []; Project._commEditChannel = [];
         saveRender();
         toast('已保存');
       },

@@ -992,7 +992,14 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .comm-form { margin-bottom: 16px; }
 .comm-form-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .comm-stats .stat.on { border-color: var(--accent); background: #fdf0f0; }
-.comm-table { min-width: 1040px; }
+.comm-table { min-width: 1240px; }
+.comm-multi { display: flex; flex-wrap: wrap; gap: 6px; }
+.comm-multi-cell { max-width: 210px; }
+.comm-multi-cell .tag { display: inline-block; margin: 1px 0; }
+.comm-chip { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 20px; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink-soft); white-space: nowrap; user-select: none; transition: .12s; }
+.comm-chip:hover { border-color: var(--accent); }
+.comm-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.comm-row.editing .comm-chip { font-size: 11px; padding: 2px 8px; }
 .comm-table td { vertical-align: middle; }
 .comm-row:hover td { background: #fafaf9; }
 .comm-row.editing td { background: #fffdf5; }

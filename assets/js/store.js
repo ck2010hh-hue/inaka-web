@@ -49,8 +49,10 @@
       // 复盘 / 备忘（板块显示名已改为「备忘」，字段名沿用 review 以兼容已同步数据）
       review: [],
       // 沟通记录（ciroa 线下板块的「沟通记录」标签页）：陌生/半熟联系人打招呼后的初步留存
-      // { id, wx(微信名), name(姓名/电话), biz(业态和身份), greetAt(打招呼时间，保存时自动记录),
-      //   replied(是否有反馈), followUp(是否值得继续跟踪), result(初步沟通结果), created, updatedAt }
+      // { id, wx(微信名), province(所在地-省，含「未知」), name(姓名/电话),
+      //   attrs[](客户属性，可多选), channels[](渠道类型，可多选), result(初步沟通结果),
+      //   greetAt(打招呼时间，保存时自动记录), replied(是否有反馈), followUp(是否值得继续跟踪),
+      //   created, updatedAt }
       commLog: [],
       // 元信息
       _meta: { lastWrite: 0, lastSync: 0, lastPage: 'focus' }
@@ -218,7 +220,9 @@
           state.commLog.forEach(function (r) {
             r.wx = r.wx || '';
             r.name = r.name || '';
-            r.biz = r.biz || '';
+            r.province = r.province || '';
+            if (!Array.isArray(r.attrs)) r.attrs = [];
+            if (!Array.isArray(r.channels)) r.channels = [];
             r.result = r.result || '';
             r.greetAt = Number(r.greetAt) || r.created || Date.now();
             r.replied = !!r.replied;
