@@ -982,3 +982,29 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 @media (max-width: 760px) {
   .ov-cards { grid-template-columns: repeat(2, 1fr); }
 }
+
+
+/* =====================================================================
+ * 沟通记录（ciroa 线下）：打招呼留存 + 初步跟踪
+ * 六列对应线下表格：微信名 / 姓名电话 / 业态和身份 / 打招呼时间 /
+ * 是否有反馈（勾选）/ 初步沟通结果，另加「值得继续跟踪」与操作列
+ * ===================================================================== */
+.comm-form { margin-bottom: 16px; }
+.comm-form-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.comm-stats .stat.on { border-color: var(--accent); background: #fdf0f0; }
+.comm-table { min-width: 1040px; }
+.comm-table td { vertical-align: middle; }
+.comm-row:hover td { background: #fafaf9; }
+.comm-row.editing td { background: #fffdf5; }
+.comm-name { font-weight: 600; }
+.comm-result { max-width: 280px; color: var(--ink-soft); }
+.comm-time { font-size: 12px; white-space: nowrap; }
+.comm-wait { display: inline-block; margin-top: 4px; font-size: 11px; color: #b8352b; background: #fbe3e1; border-radius: 20px; padding: 1px 7px; white-space: nowrap; }
+.comm-check { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 20px; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink-soft); white-space: nowrap; user-select: none; transition: .12s; }
+.comm-check:hover { border-color: var(--accent); }
+.comm-check.yes { background: #e1f3ea; border-color: #b8e0cd; color: #1f7a52; font-weight: 600; }
+.comm-check[data-act="toggleCommFollow"].yes { background: #fdf3d8; border-color: #eddcae; color: #8a6420; }
+.comm-acts { white-space: nowrap; }
+.comm-acts .btn { padding: 3px 9px; font-size: 12px; margin-right: 4px; }
+.sm-input { padding: 5px 8px; font-size: 13px; min-width: 96px; }
+@media (max-width: 760px) { .comm-form-foot { justify-content: flex-start; } }

@@ -629,6 +629,10 @@
     _custAttr: '',
     _custSearch: '',
     _timelineEditId: null,
+    // 沟通记录（ciroa 线下）：行内编辑 id / 搜索词 / 顶部统计筛选（all|replied|noreply|follow）
+    _commEditId: null,
+    _commSearch: '',
+    _commFilter: 'all',
     _renderKey: 'project',
     _ownerKey: 'project',
     // 客户版图视图状态：map=中国地图 / region=区域清单 / province=某省客户明细 / attr=属性分布
@@ -1070,6 +1074,101 @@
         '<th>客户公司</th><th>负责人</th><th>联系人</th><th>阶段</th><th>属性</th><th>渠道</th><th>区域</th><th>潜力</th><th>最新进展</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>';
     },
+    // ---- 沟通记录（ciroa 线下）----
+    // 用途：微信好友里大量陌生/半熟联系人，每天打招呼后做初步留存（时间自动记录），
+    // 下班前勾选有无反馈，判断是否值得继续跟踪；确认意向后再进「客户跟进」做正式跟踪。
+    // 数据存 state.commLog（顶层数组，与项目解耦，改名/重建项目都不丢）
+    renderCommLog: function (s) {
+      var self = this;
+      var all = (s.commLog || []).slice();
+      var q = (this._commSearch || '').trim().toLowerCase();
+      var f = this._commFilter || 'all';
+      var filtered = all.filter(function (r) {
+        if (f === 'replied' && !r.replied) return false;
+        if (f === 'noreply' && r.replied) return false;
+        if (f === 'follow' && !r.followUp) return false;
+        if (!q) return true;
+        return [r.wx, r.name, r.biz, r.result].join(' ').toLowerCase().indexOf(q) >= 0;
+      }).sort(function (a, b) { return (b.greetAt || 0) - (a.greetAt || 0); });
+
+      var total = all.length;
+      var replied = all.filter(function (r) { return r.replied; }).length;
+      var follow = all.filter(function (r) { return r.followUp; }).length;
+      var stats = '<div class="stat-row cust-stats-row comm-stats">' +
+        '<div class="stat' + (f === 'all' ? ' on' : '') + '" data-act="commFilter" data-v="all"><div class="n">' + total + '</div><div class="l">沟通总数</div></div>' +
+        '<div class="stat' + (f === 'replied' ? ' on' : '') + '" data-act="commFilter" data-v="replied"><div class="n">' + replied + '</div><div class="l">已有反馈</div></div>' +
+        '<div class="stat' + (f === 'noreply' ? ' on' : '') + '" data-act="commFilter" data-v="noreply"><div class="n">' + (total - replied) + '</div><div class="l">暂无反馈</div></div>' +
+        '<div class="stat' + (f === 'follow' ? ' on' : '') + '" data-act="commFilter" data-v="follow"><div class="n">' + follow + '</div><div class="l">值得继续跟踪</div></div>' +
+        '</div>';
+
+      var form = '<div class="card comm-form">' +
+        '<div class="grid cols-3">' +
+        '<div class="field" style="margin:0"><label>微信名</label><input class="input" id="commWx" placeholder="微信昵称 / 备注名（可直接粘贴）"></div>' +
+        '<div class="field" style="margin:0"><label>姓名 / 电话</label><input class="input" id="commNm" placeholder="姓名、手机号"></div>' +
+        '<div class="field" style="margin:0"><label>业态 / 身份</label><input class="input" id="commBiz" placeholder="如：日化经销商 / 品牌方 / 同行 / 终端"></div>' +
+        '</div>' +
+        '<div class="field" style="margin:12px 0 0"><label>初步沟通结果</label><input class="input" id="commRes" placeholder="对方回应、初步结论（例：已加微信未细聊 / 报过价 / 疑似已转行）"></div>' +
+        '<div class="comm-form-foot"><span class="muted sm">「打招呼时间」在保存时自动记录为当前时间 · 输入框内回车即可保存</span>' +
+        '<button class="btn primary" data-act="addComm">+ 保存记录</button></div>' +
+        '</div>';
+
+      var head = '<thead><tr>' +
+        '<th>微信名</th><th>姓名 / 电话</th><th>业态和身份</th><th>打招呼时间</th>' +
+        '<th>是否有反馈</th><th>初步沟通结果</th><th>值得继续跟踪</th><th>操作</th>' +
+        '</tr></thead>';
+
+      function timeTxt(ts) {
+        var d = new Date(ts || 0);
+        return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) +
+          ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+      }
+
+      var rows;
+      if (!filtered.length) {
+        rows = '<tr><td colspan="8"><div class="empty">' + (total ? '无匹配记录' : '还没有沟通记录，从上方添加第一条 ↑') + '</div></td></tr>';
+      } else {
+        rows = filtered.map(function (r) {
+          var days = r.greetAt ? Math.floor((Date.now() - r.greetAt) / 86400000) : 0;
+          var waitTxt = (!r.replied && days >= 1) ? '<span class="comm-wait">已 ' + days + ' 天未回</span>' : '';
+          var repliedLbl = r.replied ? '已反馈' : '未反馈';
+          var repliedCls = r.replied ? 'yes' : 'no';
+          var followCls = r.followUp ? 'yes' : 'no';
+          var followLbl = r.followUp ? '是' : '否';
+          if (self._commEditId === r.id) {
+            return '<tr class="comm-row editing">' +
+              '<td><input class="input sm-input" id="ceWx_' + esc(r.id) + '" value="' + esc(r.wx) + '"></td>' +
+              '<td><input class="input sm-input" id="ceNm_' + esc(r.id) + '" value="' + esc(r.name) + '"></td>' +
+              '<td><input class="input sm-input" id="ceBiz_' + esc(r.id) + '" value="' + esc(r.biz) + '"></td>' +
+              '<td><div class="comm-time">' + timeTxt(r.greetAt) + '</div>' + waitTxt + '</td>' +
+              '<td><span class="comm-check ' + repliedCls + '" data-act="toggleCommReplied" data-id="' + esc(r.id) + '" title="点击切换">' + repliedLbl + '</span></td>' +
+              '<td><input class="input sm-input" id="ceRes_' + esc(r.id) + '" value="' + esc(r.result) + '"></td>' +
+              '<td><span class="comm-check ' + followCls + '" data-act="toggleCommFollow" data-id="' + esc(r.id) + '" title="点击切换">' + followLbl + '</span></td>' +
+              '<td class="comm-acts"><button class="btn sm primary" data-act="saveComm" data-id="' + esc(r.id) + '">保存</button>' +
+              '<button class="btn sm ghost" data-act="cancelComm">取消</button></td>' +
+              '</tr>';
+          }
+          return '<tr class="comm-row">' +
+            '<td class="comm-name">' + esc(r.wx || '—') + '</td>' +
+            '<td>' + esc(r.name || '—') + '</td>' +
+            '<td>' + esc(r.biz || '—') + '</td>' +
+            '<td><div class="comm-time">' + timeTxt(r.greetAt) + '</div>' + waitTxt + '</td>' +
+            '<td><span class="comm-check ' + repliedCls + '" data-act="toggleCommReplied" data-id="' + esc(r.id) + '" title="点击勾选 / 取消">' + repliedLbl + '</span></td>' +
+            '<td class="comm-result">' + esc(r.result || '—') + '</td>' +
+            '<td><span class="comm-check ' + followCls + '" data-act="toggleCommFollow" data-id="' + esc(r.id) + '" title="点击切换">' + followLbl + '</span></td>' +
+            '<td class="comm-acts"><button class="btn sm ghost" data-act="editComm" data-id="' + esc(r.id) + '" title="编辑">✎</button>' +
+            '<button class="btn sm ghost" data-act="delComm" data-id="' + esc(r.id) + '" title="删除">✕</button></td>' +
+            '</tr>';
+        }).join('');
+      }
+
+      var toolbar = '<div class="cust-toolbar">' +
+        '<input class="input cust-search" id="commSearch" type="text" placeholder="搜索微信名 / 姓名 / 业态 / 沟通结果…" value="' + esc(this._commSearch) + '">' +
+        '<span class="muted sm">共 ' + total + ' 条 · 当前显示 ' + filtered.length + ' 条</span>' +
+        '</div>';
+
+      return stats + form + toolbar +
+        '<div class="cust-table-wrap"><table class="cust-table comm-table">' + head + '<tbody>' + rows + '</tbody></table></div>';
+    },
     renderCustOverlay: function (s) {
       var self = this;
       var p = this._detailId ? s.project.find(function (x) { return x.id === self._detailId; }) : null;
@@ -1159,7 +1258,7 @@
         });
         saveRender();
       },
-      projTab: function (el) { Project._projTab = el.dataset.t; renderPage(Project._renderKey); },
+      projTab: function (el) { Project._projTab = el.dataset.t; Project._commEditId = null; renderPage(Project._renderKey); },
       custAttr: function (el) { Project._custAttr = el.dataset.v; renderPage(Project._renderKey); },
       custStage: function (el) { Project._custStage = el.dataset.v || null; Project._custCompact = false; renderPage(Project._renderKey); },
       custStat: function (el) { Project._custStage = el.dataset.v; Project._custCompact = true; renderPage(Project._renderKey); },
@@ -1199,6 +1298,57 @@
         if (c && box) box.innerHTML = Project.renderProcChart(c);
       },
       custTabToggle: function () { Project._custTab = Project._custTab === 'board' ? 'list' : 'board'; renderPage(Project._renderKey); },
+      // ---- 沟通记录 ----
+      commFilter: function (el) { Project._commFilter = el.dataset.v || 'all'; renderPage(Project._renderKey); },
+      addComm: function () {
+        function val(id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; }
+        var wx = val('commWx'), nm = val('commNm'), biz = val('commBiz'), res = val('commRes');
+        if (!wx && !nm) { toast('请至少填写「微信名」或「姓名/电话」'); return; }
+        var now = Date.now();
+        state.commLog = state.commLog || [];
+        state.commLog.unshift({
+          id: S.uid(), wx: wx, name: nm, biz: biz, result: res,
+          greetAt: now, replied: false, followUp: false, created: now, updatedAt: now
+        });
+        saveRender();
+        toast('已记录打招呼时间 ' + new Date(now).toLocaleString());
+      },
+      toggleCommReplied: function (el) {
+        var r = (state.commLog || []).find(function (x) { return x.id === el.dataset.id; }); if (!r) return;
+        r.replied = !r.replied;
+        r.updatedAt = Date.now();
+        saveRender();
+        toast(r.replied ? '已标记为「有反馈」' : '已标记为「无反馈」');
+      },
+      toggleCommFollow: function (el) {
+        var r = (state.commLog || []).find(function (x) { return x.id === el.dataset.id; }); if (!r) return;
+        r.followUp = !r.followUp;
+        r.updatedAt = Date.now();
+        saveRender();
+      },
+      editComm: function (el) { Project._commEditId = el.dataset.id; renderPage(Project._renderKey); },
+      cancelComm: function () { Project._commEditId = null; renderPage(Project._renderKey); },
+      saveComm: function (el) {
+        var id = el.dataset.id || Project._commEditId; if (!id) return;
+        var r = (state.commLog || []).find(function (x) { return x.id === id; }); if (!r) return;
+        function val(k) { var e = document.getElementById(k); return e ? e.value.trim() : ''; }
+        var wx = val('ceWx_' + id), nm = val('ceNm_' + id);
+        if (!wx && !nm) { toast('「微信名」和「姓名/电话」不能同时为空'); return; }
+        r.wx = wx; r.name = nm; r.biz = val('ceBiz_' + id); r.result = val('ceRes_' + id);
+        r.updatedAt = Date.now();
+        Project._commEditId = null;
+        saveRender();
+        toast('已保存');
+      },
+      delComm: function (el) {
+        var id = el.dataset.id; if (!id) return;
+        if (!ask('删除该沟通记录？')) return;
+        state.commLog = (state.commLog || []).filter(function (x) { return x.id !== id; });
+        if (Project._commEditId === id) Project._commEditId = null;
+        saveRender();
+        toast('已删除');
+      },
+
       importCustTemplate: function (el) {
         var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
         var tpl = (window.CIROA_CUSTOMERS || []);
@@ -1408,6 +1558,16 @@
           renderPage(Project._renderKey);
           var next = document.getElementById('custSearch');
           if (next) { next.focus(); next.setSelectionRange(csearch.value.length, csearch.value.length); }
+        });
+      }
+      // 沟通记录搜索（同样保留焦点与光标）
+      var commSearch = document.getElementById('commSearch');
+      if (commSearch) {
+        commSearch.addEventListener('input', function () {
+          Project._commSearch = commSearch.value;
+          renderPage(Project._renderKey);
+          var next = document.getElementById('commSearch');
+          if (next) { next.focus(); next.setSelectionRange(commSearch.value.length, commSearch.value.length); }
         });
       }
       // 关联人脉搜索过滤
@@ -3076,27 +3236,28 @@
       Project._detailId = p ? p.id : null;
       Project._ownerKey = 'ciroa';
       Project._renderKey = 'ciroa';
-      if (!p) {
-        return section(teamMode ? '客户管理' : 'ciroa中国线下拓展', '核心主业务', '') +
-          '<div class="card"><div class="empty">' + (teamMode ? '尚未创建「客户管理」主业务项目。请先在「项目」中创建项目（项目名填 ciroa中国线下拓展），本板块会自动同步。' : '尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。') + '</div></div>';
-      }
+      var noProjectMsg = '<div class="card"><div class="empty">' + (teamMode ?
+        '尚未创建「客户管理」主业务项目。请先在「项目」中创建项目（项目名填 ciroa中国线下拓展），本板块会自动同步。' :
+        '尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。') + '</div></div>';
       var tabs = '<div class="detail-tabs ciroa-tabs">' +
-        '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">客户版图</button>' +
-        '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' +
+        (p ? '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">客户版图</button>' +
+             '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' : '') +
+        '<button class="dtab ' + (Project._projTab === 'comm' ? 'active' : '') + '" data-act="projTab" data-t="comm">沟通记录</button>' +
         '</div>';
-      var body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderCustMap(s, p);
+      var body;
+      if (Project._projTab === 'comm') body = Project.renderCommLog(s);
+      else if (!p) body = noProjectMsg;
+      else body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderCustMap(s, p);
       return section(teamMode ? '客户管理' : 'ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
         '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
         Project.renderCustOverlay(s);
     },
     // 直接复用 Project 的客户/概况交互逻辑（这些 act 内部都用显式 Project._xxx，不依赖 this）
     acts: Project.acts,
-    onRender: function () {
-      var cv = document.getElementById('custOverlay');
-      if (cv) cv.addEventListener('click', function (e) {
-        if (e.target.id === 'custOverlay') { Project._custDetailId = null; renderPage(Project._renderKey); }
-      });
-    }
+    // 转发给 Project.onRender：ciroa 页面走的是本模块的 onRender，
+    // 不转发的话页内输入框绑定（客户搜索 / 关联人脉过滤 / 沟通记录搜索）以及
+    // 客户详情 backdrop 的关闭都不会生效（Project.onRender 内部已按 id 判空，安全）。
+    onRender: function () { Project.onRender.call(Project); }
   };
 
   // 团队总览（老板/管理员视角）：聚合各销售的客户/待办/项目进展
@@ -3115,8 +3276,15 @@
           var todo = st.todo || [];
           var done = todo.filter(function (t) { return t.done; }).length;
           var rate = todo.length ? Math.round(done / todo.length * 100) : 0;
-          var cust = (st.ciroa && st.ciroa.customers) || [];
+          // 客户挂在 ciroa 项目上（p.customers），并非 st.ciroa.customers —— 之前取错会永远显示 0
           var proj = st.project || [];
+          var ciroaP = proj.find(function (x) { return x.name === CIROA_PROJECT_NAME; });
+          var cust = (ciroaP && ciroaP.customers) || [];
+          var commLog = st.commLog || [];
+          var todayStr = new Date().toDateString();
+          var commToday = commLog.filter(function (r) {
+            return r.greetAt && new Date(r.greetAt).toDateString() === todayStr;
+          }).length;
           var stages = {};
           cust.forEach(function (c) { var k = c.stage || '未知'; stages[k] = (stages[k] || 0) + 1; });
           return {
@@ -3124,6 +3292,7 @@
             todoTotal: todo.length, todoDone: done, rate: rate,
             custTotal: cust.length, stages: stages,
             projTotal: proj.length,
+            commTotal: commLog.length, commToday: commToday,
             lastWrite: (st._meta && st._meta.lastWrite) || 0
           };
         });
@@ -3146,6 +3315,7 @@
           '<div class="ov-title">' + esc(d.user.name) + ' <span class="ov-role">' + roleLabel(d.user.role) + '</span></div>' +
           '<div class="ov-stat"><b>' + d.custTotal + '</b> 客户 · <b>' + d.projTotal + '</b> 项目</div>' +
           '<div class="ov-stat">待办完成 <b>' + d.rate + '%</b>（' + d.todoDone + '/' + d.todoTotal + '）</div>' +
+          '<div class="ov-stat">沟通记录 <b>' + d.commTotal + '</b> 条 · 今日 +' + d.commToday + '</div>' +
           stageBars +
           '<div class="ov-stat ov-upd">最近更新：' + upd + '</div>' +
           '</div>';
@@ -3221,8 +3391,12 @@
   pageHost.addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     if (e.target.tagName === 'TEXTAREA') return;
-    if (!/(Input|Text|Name|Title|Amount)$/.test(e.target.id)) return;
     var mod = byKey[currentKey];
+    // 沟通记录：输入框内回车 = 保存这条记录（不能再落到下面的通用 add，否则会误建项目）
+    if (mod && mod.acts && mod.acts.addComm && /^comm/.test(e.target.id)) {
+      e.preventDefault(); mod.acts.addComm({ dataset: {} }); return;
+    }
+    if (!/(Input|Text|Name|Title|Amount)$/.test(e.target.id)) return;
     if (mod && mod.acts && mod.acts.add) { e.preventDefault(); mod.acts.add({ dataset: {} }); }
   });
 

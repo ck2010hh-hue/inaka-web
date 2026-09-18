@@ -48,6 +48,10 @@
       finance: { accounts: [], records: [], budgets: [] },
       // 复盘 / 备忘（板块显示名已改为「备忘」，字段名沿用 review 以兼容已同步数据）
       review: [],
+      // 沟通记录（ciroa 线下板块的「沟通记录」标签页）：陌生/半熟联系人打招呼后的初步留存
+      // { id, wx(微信名), name(姓名/电话), biz(业态和身份), greetAt(打招呼时间，保存时自动记录),
+      //   replied(是否有反馈), followUp(是否值得继续跟踪), result(初步沟通结果), created, updatedAt }
+      commLog: [],
       // 元信息
       _meta: { lastWrite: 0, lastSync: 0, lastPage: 'focus' }
     };
@@ -72,6 +76,22 @@
     var data = (backup && backup.data) ? backup.data : backup;
     var s = defaultState();
     try {
+      // 新版完整状态导出（exportJson 写的是 {data: state}）：整表还原。
+      // 否则「导出备份 → 导入」会丢掉 战略/人脉/理财/备忘/沟通记录 等板块（旧迁移分支只认扁平键）。
+      var isFullState = !!data && typeof data === 'object' && !!(
+        data._meta || data.focus || data.habit || data.finance || data.review ||
+        data.strategy || data.contacts || data.commLog
+      );
+      if (isFullState) {
+        Object.keys(s).forEach(function (k) {
+          if (k === 'habit' || k === 'finance' || k === '_meta') return;
+          if (data[k] !== undefined) s[k] = clone(data[k]);
+        });
+        if (data.habit) s.habit = Object.assign({ items: [], punch: {}, removedDefaults: [] }, clone(data.habit));
+        if (data.finance) s.finance = Object.assign({ accounts: [], records: [], budgets: [] }, clone(data.finance));
+        if (data._meta) s._meta = Object.assign({ lastWrite: 0, lastSync: 0, lastPage: 'focus' }, clone(data._meta));
+        return s;
+      }
       // focus（habit:punch 旧格式语义不清，重新打卡即可，不迁移）
       Object.keys(data).forEach(function (k) {
         if (k.indexOf('focus:') === 0) {
@@ -192,6 +212,20 @@
             });
           });
           state.growth = [];
+        }
+        // 沟通记录字段归一化：兼容旧数据 / 跨端缺字段（greetAt 缺失时回退到 created）
+        if (Array.isArray(state.commLog)) {
+          state.commLog.forEach(function (r) {
+            r.wx = r.wx || '';
+            r.name = r.name || '';
+            r.biz = r.biz || '';
+            r.result = r.result || '';
+            r.greetAt = Number(r.greetAt) || r.created || Date.now();
+            r.replied = !!r.replied;
+            r.followUp = !!r.followUp;
+            r.created = r.created || r.greetAt;
+            r.updatedAt = r.updatedAt || r.created;
+          });
         }
         return state;
       }
@@ -616,7 +650,7 @@
   function mergeState(local, remote) {
     if (!remote) return { state: local, changed: false };
     var out = clone(local);
-    var ARR_KEYS = ['todo', 'project', 'notes', 'contacts', 'strategy', 'growth', 'review'];
+    var ARR_KEYS = ['todo', 'project', 'notes', 'contacts', 'strategy', 'growth', 'review', 'commLog'];
     ARR_KEYS.forEach(function (k) {
       if (k === 'project') {
         out[k] = mergeArrWith(local[k], remote[k], function (i) { return i.id; }, mergeProject);
