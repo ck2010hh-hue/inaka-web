@@ -651,6 +651,7 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .chip { padding: 5px 12px; border-radius: 20px; font-size: 13px; border: 1px solid var(--line); background: #fff; cursor: pointer; color: var(--ink-soft); }
 .chip:hover { border-color: var(--accent); color: var(--accent); }
 .chip.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 /* 客户看板（三阶段） */
 .cust-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; align-items: start; }
@@ -849,6 +850,27 @@ select.input { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://ww
 .ciroa-body .cust-table-wrap { overflow-x: auto; }
 @media (max-width: 1000px) { .ciroa-body .cust-board { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) { .ciroa-body .cust-board { grid-template-columns: 1fr; } }
+
+/* ===== 客户通讯录（A-Z 拼音索引） ===== */
+.pb-index { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.pb-idx { display: inline-flex; min-width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 8px; border: 1px solid var(--line); background: #fff; text-decoration: none; color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.pb-idx:hover { border-color: var(--accent); color: var(--accent); }
+.pb-list { margin-top: 6px; }
+.pb-group { margin-bottom: 18px; scroll-margin-top: 12px; }
+.pb-letter { font-size: 18px; font-weight: 700; color: var(--accent); margin: 12px 0 8px; padding-left: 6px; border-left: 3px solid var(--accent); }
+.pb-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-bottom: 8px; cursor: pointer; transition: .12s; }
+.pb-row:hover { border-color: var(--accent); box-shadow: 0 3px 10px rgba(0,0,0,.05); }
+.pb-main { flex: 1; min-width: 0; }
+.pb-name { font-weight: 600; }
+.pb-meta { font-size: 13px; color: var(--ink-soft); margin-top: 2px; }
+.pb-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.pb-link { font-size: 12px; color: var(--accent); margin-top: 4px; }
+
+/* ===== 销售跟进看板（5 阶段） ===== */
+.sales-board { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 1100px) { .sales-board { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 760px) { .sales-board { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 520px) { .sales-board { grid-template-columns: 1fr; } }
 
 /* 客户编辑 - 关联人脉搜索栏（替代旧下拉） */
 .cust-contact-picker { display: flex; flex-direction: column; gap: 6px; }
