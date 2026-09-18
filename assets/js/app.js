@@ -506,11 +506,103 @@
     });
     return dirty;
   }
-  // 客户跟进（CRM 看板）可选项
-  var CUST_STAGES = ['已合作', '跟进中', '已建联等时机', '仅建联未沟通'];
-  var CUST_STAGE_COLOR = { '已合作': 'green', '跟进中': 'blue', '已建联等时机': 'amber', '仅建联未沟通': 'gray' };
-  var CUST_ATTRS = ['代理商/经销商', '终端实体', '流通商/批发商'];
-  var CUST_CHANNELS = ['高超/精超', '线上平台', '传统CS', '新零售/新美妆', '便利', 'KA卖场', '私域', '团购特渠', '线下多渠道'];
+  // ===== 客户管理（CRM）可选项 =====
+  // 合作模式：2026-09-18 由原 4 阶段（已合作 / 跟进中 / 已建联等时机 / 仅建联未沟通）
+  // 收敛为二值（已合作 / 未合作）。原细分阶段名迁移到 customer.stageDetail 保留展示，不丢信息。
+  var CUST_STAGES = ['已合作', '未合作'];
+  var CUST_STAGE_COLOR = { '已合作': 'green', '未合作': 'blue' };
+  var LEGACY_STAGE_MAP = { '已合作': '已合作', '跟进中': '未合作', '已建联等时机': '未合作', '仅建联未沟通': '未合作' };
+  // 属性（多选）
+  var CUST_ATTRS = ['代理商', '经销商', '终端零售', '流通', '分销商', '供应商'];
+  var CUST_ATTR_MAP = { '代理商/经销商': ['代理商', '经销商'], '终端实体': ['终端零售'], '流通商/批发商': ['流通', '分销商'] };
+  // 渠道类型（多选）
+  var CUST_CHANNELS = ['KA', '高超', '精选', '新零售/新美妆', '传统CS', '便利', '精品', '多渠道'];
+  var CUST_CHANNEL_MAP = { '高超/精超': ['高超'], 'KA卖场': ['KA'], '线下多渠道': ['多渠道'], '线上平台': ['多渠道'] };
+  // 结算方式（原「合作模式」字段的现采 / 试销 / 账期，保留为独立字段）
+  var CUST_MODES = ['现采', '试销', '账期'];
+
+  /* ---------- 客户字段读取（兼容迁入前的旧单值字段，渲染侧无需再判空） ---------- */
+  function custAttrs(c) {
+    if (!c) return [];
+    if (Array.isArray(c.attrs) && c.attrs.length) return c.attrs;
+    if (c.attr) return CUST_ATTR_MAP[c.attr] || [c.attr];
+    return Array.isArray(c.attrs) ? c.attrs : [];
+  }
+  function custChannels(c) {
+    if (!c) return [];
+    if (Array.isArray(c.channels) && c.channels.length) return c.channels;
+    if (c.channel) return CUST_CHANNEL_MAP[c.channel] || [c.channel];
+    return Array.isArray(c.channels) ? c.channels : [];
+  }
+  function custStage(c) { return (c && CUST_STAGES.indexOf(c.stage) >= 0) ? c.stage : (c && LEGACY_STAGE_MAP[c.stage]) || '未合作'; }
+  function custStageDetail(c) { return (c && c.stageDetail) ? c.stageDetail : ''; }
+  // 客户全字段检索文本（通讯录要求「可搜索建档时的所有内容文字」）
+  function custHaystack(c) {
+    if (!c) return '';
+    return [c.name, c.person, c.phone, c.mailAddr, c.shipAddr, c.province, c.city,
+      c.mainChannel, c.note, c.overview, c.region, c.outlets, c.mode, c.owner,
+      c.stage, c.stageDetail, c.potential, c.price,
+      custAttrs(c).join(' '), custChannels(c).join(' '),
+      (c.timeline || []).map(function (t) { return (t.stage || '') + ' ' + (t.memo || ''); }).join(' ')
+    ].join(' ').toLowerCase();
+  }
+  // 按属性 / 渠道多选值统计（数值口径：一家客户可计入多个分类）
+  function countByMulti(list, fn) {
+    var m = {};
+    (list || []).forEach(function (it) {
+      var vals = fn(it) || [];
+      vals.forEach(function (v) { if (v) m[v] = (m[v] || 0) + 1; });
+    });
+    return m;
+  }
+
+  /* ---------- 归一化单条客户：旧字段 → 新字段（返回是否发生改动） ---------- */
+  function normalizeCustomer(c) {
+    if (!c || typeof c !== 'object') return false;
+    var changed = false;
+    if (!Array.isArray(c.attrs)) { c.attrs = c.attr ? (CUST_ATTR_MAP[c.attr] || [c.attr]) : []; changed = true; }
+    if (!Array.isArray(c.channels)) { c.channels = c.channel ? (CUST_CHANNEL_MAP[c.channel] || [c.channel]) : []; changed = true; }
+    var legacy = c.stage || '';
+    var mapped = (CUST_STAGES.indexOf(legacy) >= 0) ? legacy : (LEGACY_STAGE_MAP[legacy] || '未合作');
+    if (legacy && legacy !== mapped && !c.stageDetail) { c.stageDetail = legacy; changed = true; }
+    if (c.stage !== mapped) { c.stage = mapped; changed = true; }
+    if (!c.mainChannel && c.channel) { c.mainChannel = c.channel; changed = true; }
+    ['mailAddr', 'shipAddr', 'note'].forEach(function (k) {
+      if (typeof c[k] !== 'string') { c[k] = ''; changed = true; }
+    });
+    if (!Array.isArray(c.timeline)) { c.timeline = []; changed = true; }
+    // 旧单值字段清理（值已并入 attrs[] / channels[] / mainChannel）
+    if (c.attr !== undefined) { delete c.attr; changed = true; }
+    if (c.channel !== undefined) { delete c.channel; changed = true; }
+    return changed;
+  }
+
+  /* ---------- 一次性迁移：把原先寄生在各项目下的 customers 升为顶层客户库 ----------
+     背景：客户数据原先挂在「ciroa中国线下拓展」项目下，导致删项目即丢客户、且无法承载多品牌。
+     原项目里的 customers 数组原样保留作冷备（不再被任何页面读取），确认无误后可另行清理。 */
+  function migrateCustomersToTop() {
+    if (state._custTopV2) return false;
+    var dirty = false;
+    if (!Array.isArray(state.customers)) { state.customers = []; dirty = true; }
+    var seen = {};
+    state.customers.forEach(function (c) { if (c && c.id) seen[c.id] = 1; });
+    (state.project || []).forEach(function (p) {
+      (p.customers || []).forEach(function (c) {
+        if (!c || !c.id || seen[c.id]) return;
+        state.customers.push(c);
+        seen[c.id] = 1;
+        dirty = true;
+      });
+      if (p.customers && p.customers.length) p.custMovedToTop = true;
+    });
+    state.customers.forEach(function (c) { if (normalizeCustomer(c)) dirty = true; });
+    state._custTopV2 = 1;
+    return true;
+  }
+
+  // 当前页面 key：Project / Contacts 的 act 都被「客户管理」板块复用，
+  // 需要动态 key 才能把页面渲染回正确的板块（原硬编码 'contacts' / 'projects' 已失效）。
+  function curKey() { return Project._renderKey || 'crm'; }
   // 沟通记录（ciroa 线下 → 沟通记录）：陌生/半熟联系人初步留存的可选项
   // 客户属性 / 渠道类型 均可多选；所在地按「省」（含「未知」），省份列表复用 window.REGION_DATA
   var COMM_ATTRS = ['代理商/经销商', '流通商/批发商', '品牌方', '终端实体', '包场商', '供应链'];
@@ -713,7 +805,8 @@
       var self = this;
       var p = this._detailId ? s.project.find(function (x) { return x.id === self._detailId; }) : null;
       if (!p) return '<div class="overlay" id="projectOverlay"></div>';
-      var showCustomers = (p.name === 'ciroa中国线下拓展');
+      // 客户已升为顶层 state.customers，ciroa 项目不再单独承载客户跟进 tab（统一在「客户管理」板块）
+      var showCustomers = false;
       var tabs = '<div class="detail-tabs">' +
         '<button class="dtab ' + (this._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">概况</button>' +
         (showCustomers ? '<button class="dtab ' + (this._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' : '') +
@@ -757,15 +850,15 @@
     },
     renderCustMap: function (s, p) {
       var self = this;
-      var all = p.customers || [];
+      var all = (state.customers || []).slice();
       var total = all.length;
       var CM = (typeof window.CHINA_MAP !== 'undefined') ? window.CHINA_MAP : null;
       // 阶段筛选 + 属性筛选：地图/区域/省明细同时受两者过滤
       var stage = this._mapStage;
       var attr = this._mapAttr;
       var custs = all;
-      if (stage) custs = custs.filter(function (c) { return c.stage === stage; });
-      if (attr) custs = custs.filter(function (c) { return c.attr === attr; });
+      if (stage) custs = custs.filter(function (c) { return custStage(c) === stage; });
+      if (attr) custs = custs.filter(function (c) { return custAttrs(c).indexOf(attr) >= 0; });
       var byProv = {};
       custs.forEach(function (c) { var k = c.province || ''; (byProv[k] = byProv[k] || []).push(c); });
       var named = Object.keys(byProv).filter(function (k) { return k; });
@@ -786,10 +879,10 @@
           var tlTxt = latestTl ? latestTl.stage : '';
           return '<div class="map-cust-row" data-act="openCust" data-id="' + esc(c.id) + '">' +
             '<span class="mc-name">' + esc(c.name || '(未命名客户)') + '</span>' +
-            '<span class="mc-attr">' + esc(c.attr || '未分类') + '</span>' +
+            '<span class="mc-attr">' + esc(custAttrs(c).join('/') || '未分类') + '</span>' +
             '<span class="mc-city">' + esc(c.city || '未选市') + '</span>' +
             '<span class="mc-tl">' + esc(tlTxt) + '</span>' +
-            '<span class="tag sm ' + CUST_STAGE_COLOR[c.stage] + '">' + esc(c.stage || '跟进中') + '</span></div>';
+            '<span class="tag sm ' + CUST_STAGE_COLOR[custStage(c)] + '">' + esc(custStage(c) || '未合作') + '</span></div>';
         }).join('');
         var provFilters = [];
         if (stage) provFilters.push(stage);
@@ -862,12 +955,12 @@
       // 阶段筛选 chip（资产总数右侧）
       var stageChips = '<span class="stage-chip ' + (stage ? '' : 'active') + '" data-act="mapStage" data-v="">全部 ' + total + '</span>' +
         CUST_STAGES.map(function (st) {
-          var n = all.filter(function (c) { return c.stage === st; }).length;
+          var n = all.filter(function (c) { return custStage(c) === st; }).length;
           return '<span class="stage-chip ' + (stage === st ? 'active ' : '') + 'c-' + CUST_STAGE_COLOR[st] + '" data-act="mapStage" data-v="' + esc(st) + '"><i class="dot ' + CUST_STAGE_COLOR[st] + '"></i>' + esc(st) + ' ' + n + '</span>';
         }).join('');
       // 属性筛选 chip（阶段筛选下方）
       var attrChips = CUST_ATTRS.map(function (a) {
-        var n = all.filter(function (c) { return c.attr === a; }).length;
+        var n = all.filter(function (c) { return custAttrs(c).indexOf(a) >= 0; }).length;
         return '<span class="attr-chip ' + (attr === a ? 'active ' : '') + '" data-act="mapAttrFilter" data-v="' + esc(a) + '">' + esc(a) + ' ' + n + '</span>';
       }).join('');
       var filterLine = (stage || attr) ? '<div class="muted sm" style="margin-top:6px">' +
@@ -897,7 +990,7 @@
       var self = this;
       var custs = all || [];
       // 1) 属性类型饼图
-      var attrCount = countByKey(custs, function (c) { return c.attr; });
+      var attrCount = countByMulti(custs, custAttrs);
       var attrEntries = CUST_ATTRS.map(function (a, i) {
         return { label: a, value: attrCount[a] || 0, color: ATTR_PALETTE[i % ATTR_PALETTE.length] };
       });
@@ -907,8 +1000,9 @@
       custs.forEach(function (c) {
         var pv = c.province || '未设置';
         provMap[pv] = provMap[pv] || { label: pv, segs: {}, total: 0 };
-        var a = c.attr || '未分类';
-        provMap[pv].segs[a] = (provMap[pv].segs[a] || 0) + 1;
+        custAttrs(c).forEach(function (a) {
+          provMap[pv].segs[a] = (provMap[pv].segs[a] || 0) + 1;
+        });
         provMap[pv].total++;
       });
       var provRows = Object.keys(provMap).map(function (k) {
@@ -984,28 +1078,26 @@
     },
     renderCustomers: function (s, p) {
       var self = this;
-      var all = (p.customers || []).slice();
+      var all = (state.customers || []).slice();
       var q = (this._custSearch || '').trim().toLowerCase();
       var attr = this._custAttr;
       var filtered = all.filter(function (c) {
         if (attr === '__sample__') { if (c.sample !== '有') return false; }
-        else if (attr && c.attr !== attr) return false;
+        else if (attr && custAttrs(c).indexOf(attr) < 0) return false;
         if (!q) return true;
-        var hay = [c.name, c.person, c.region, c.channel, c.attr, c.status, c.progress, (c.timeline || []).map(function (t) { return t.memo; }).join(' ')].join(' ').toLowerCase();
+        var hay = [c.name, c.person, c.region, custChannels(c).join(' '), custAttrs(c).join(' '), c.status, c.progress, (c.timeline || []).map(function (t) { return t.memo; }).join(' ')].join(' ').toLowerCase();
         return hay.indexOf(q) >= 0;
       });
-      function cnt(stage) { return all.filter(function (c) { return c.stage === stage; }).length; }
+      function cnt(stage) { return all.filter(function (c) { return custStage(c) === stage; }).length; }
       var stats = '<div class="stat-row cust-stats-row">' +
         '<div class="stat" data-act="custStat" data-v="all"><div class="n">' + all.length + '</div><div class="l">客户总数</div></div>' +
         '<div class="stat" data-act="custStat" data-v="已合作"><div class="n">' + cnt('已合作') + '</div><div class="l">已合作</div></div>' +
-        '<div class="stat" data-act="custStat" data-v="跟进中"><div class="n">' + cnt('跟进中') + '</div><div class="l">跟进中</div></div>' +
-        '<div class="stat" data-act="custStat" data-v="已建联等时机"><div class="n">' + cnt('已建联等时机') + '</div><div class="l">已建联等时机</div></div>' +
-        '<div class="stat" data-act="custStat" data-v="仅建联未沟通"><div class="n">' + cnt('仅建联未沟通') + '</div><div class="l">仅建联未沟通</div></div>' +
+        '<div class="stat" data-act="custStat" data-v="未合作"><div class="n">' + cnt('未合作') + '</div><div class="l">未合作</div></div>' +
         '</div>';
       // 顶部统计标签进入的精简纵向列表（快速一览）
       if (this._custCompact && this._custStage !== null) {
         var stageFilter = this._custStage === 'all' ? null : this._custStage;
-        var list = filtered.filter(function (c) { return !stageFilter || c.stage === stageFilter; })
+        var list = filtered.filter(function (c) { return !stageFilter || custStage(c) === stageFilter; })
           .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
         var title = stageFilter || '全部客户';
         var rows = list.length ? list.map(function (c) {
@@ -1017,24 +1109,24 @@
         return stats +
           '<div class="cust-toolbar"><button class="btn ghost" data-act="custBoardBack">← 返回看板</button>' +
           '<span class="cust-stage-title">' + esc(title) + '（' + list.length + '）</span>' +
-          '<button class="btn primary" style="margin-left:auto" data-act="addCust" data-pid="' + p.id + '">+ 新增客户</button></div>' +
+          '<button class="btn primary" style="margin-left:auto" data-act="addCust">+ 新增客户</button></div>' +
           '<div class="cust-name-list">' + rows + '</div>';
       }
       // 独立阶段页（用于"查看全部"）
       if (this._custStage) {
         var stage = this._custStage;
-        var list = filtered.filter(function (c) { return c.stage === stage; })
+        var list = filtered.filter(function (c) { return custStage(c) === stage; })
           .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
         var cards = list.length ? list.map(function (c) { return self.renderCustCard(c); }).join('') : '<div class="empty">该阶段暂无客户</div>';
         return stats +
           '<div class="cust-toolbar"><button class="btn ghost" data-act="custStage" data-v="">← 返回看板</button>' +
           '<span class="cust-stage-title">' + esc(stage) + '（' + list.length + '）</span>' +
-          '<button class="btn primary" style="margin-left:auto" data-act="addCust" data-pid="' + p.id + '">+ 新增客户</button></div>' +
+          '<button class="btn primary" style="margin-left:auto" data-act="addCust">+ 新增客户</button></div>' +
           '<div class="cust-list">' + cards + '</div>';
       }
       // 看板
       var board = '<div class="cust-board">' + CUST_STAGES.map(function (stage) {
-        var list = filtered.filter(function (c) { return c.stage === stage; })
+        var list = filtered.filter(function (c) { return custStage(c) === stage; })
           .sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
         var shown = list.slice(0, 5);
         var rest = list.length - shown.length;
@@ -1046,13 +1138,13 @@
         CUST_ATTRS.map(function (a) { return '<span class="chip ' + (attr === a ? 'active' : '') + '" data-act="custAttr" data-v="' + esc(a) + '">' + esc(a) + '</span>'; }).join('') +
         '<span class="chip ' + (attr === '__sample__' ? 'active' : '') + '" data-act="custAttr" data-v="__sample__">已寄样</span>';
       var importBtn = (window.CIROA_CUSTOMERS && window.CIROA_CUSTOMERS.length && all.length === 0)
-        ? '<button class="btn ghost" style="margin-left:auto" data-act="importCustTemplate" data-pid="' + p.id + '">导入初始客户清单（' + window.CIROA_CUSTOMERS.length + '）</button>'
+        ? '<button class="btn ghost" style="margin-left:auto" data-act="importCustTemplate">导入初始客户清单（' + window.CIROA_CUSTOMERS.length + '）</button>'
         : '';
       return stats +
         '<div class="cust-toolbar">' +
         '<input class="input cust-search" id="custSearch" type="text" placeholder="搜索客户 / 联系人 / 区域 / 渠道…" value="' + esc(this._custSearch) + '">' +
         '<button class="btn ghost sm" data-act="custTabToggle">' + (this._custTab === 'board' ? '列表' : '看板') + '</button>' +
-        '<button class="btn primary" data-act="addCust" data-pid="' + p.id + '">+ 新增客户</button>' +
+        '<button class="btn primary" data-act="addCust">+ 新增客户</button>' +
         importBtn +
         '</div>' +
         '<div class="cust-attrs">' + attrChips + '</div>' +
@@ -1072,9 +1164,9 @@
           '<td><span class="cust-title">' + esc(c.name || '') + '</span></td>' +
           '<td>' + esc(c.owner || '') + '</td>' +
           '<td>' + esc(c.person || '') + '</td>' +
-          '<td>' + esc(c.stage || '') + '</td>' +
-          '<td>' + esc(c.attr || '') + '</td>' +
-          '<td>' + esc(c.channel || '') + '</td>' +
+          '<td>' + esc(custStage(c) || '') + '</td>' +
+          '<td>' + esc(custAttrs(c).join('/') || '') + '</td>' +
+          '<td>' + esc(custChannels(c).join('/') || '') + '</td>' +
           '<td>' + esc(c.region || '') + '</td>' +
           '<td>' + esc(c.potential || '-') + '</td>' +
           '<td class="cust-prog-cell">' + esc(lastMemo) + '</td>' +
@@ -1210,10 +1302,21 @@
     },
     renderCustOverlay: function (s) {
       var self = this;
-      var p = this._detailId ? s.project.find(function (x) { return x.id === self._detailId; }) : null;
-      var c = p && this._custDetailId ? (p.customers || []).find(function (x) { return x.id === self._custDetailId; }) : null;
+      var c = this._custDetailId ? (state.customers || []).find(function (x) { return x.id === self._custDetailId; }) : null;
       if (!c) return '<div class="overlay" id="custOverlay"></div>';
       function opts(arr, sel) { return arr.map(function (o) { return '<option' + (o === sel ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join(''); }
+      function custAttrChipGroup() {
+        return CUST_ATTRS.map(function (a) {
+          var on = (Project._custEditAttr || []).indexOf(a) >= 0;
+          return '<span class="chip toggle' + (on ? ' on' : '') + '" data-act="custAttrToggle" data-v="' + esc(a) + '">' + esc(a) + '</span>';
+        }).join('');
+      }
+      function custChannelChipGroup() {
+        return CUST_CHANNELS.map(function (a) {
+          var on = (Project._custEditChannel || []).indexOf(a) >= 0;
+          return '<span class="chip toggle' + (on ? ' on' : '') + '" data-act="custChannelToggle" data-v="' + esc(a) + '">' + esc(a) + '</span>';
+        }).join('');
+      }
       var CUST_MODES = ['现采', '试销', '账期'];
       var linkOpts = '<option value="">关联人脉（可选）…</option>' + (s.contacts || []).map(function (ct) {
         var label = ct.company ? ct.company + ' · ' + ct.name : ct.name;
@@ -1246,9 +1349,11 @@
         '<div class="detail-section"><label>客户公司 / 名称</label><input class="input" id="cName" value="' + esc(c.name || '') + '"></div>' +
         '<div class="detail-section"><label>客户概况</label><textarea class="textarea" id="cOverview" rows="3" placeholder="公司背景、合作历史、主营渠道、规模等手动补充…">' + esc(c.overview || '') + '</textarea></div>' +
         custLoc +
+        '<div class="detail-section"><label>收信信息（收件人 / 地址 / 电话）</label><input class="input" id="cMailAddr" value="' + esc(c.mailAddr || '') + '"></div>' +
+        '<div class="detail-section"><label>收货信息（收件人 / 地址 / 电话）</label><input class="input" id="cShipAddr" value="' + esc(c.shipAddr || '') + '"></div>' +
         '<div class="detail-section"><label>阶段</label><select class="select" id="cStage">' + opts(CUST_STAGES, c.stage) + '</select></div>' +
-        '<div class="detail-section"><label>客户属性</label><select class="select" id="cAttr">' + opts(CUST_ATTRS, c.attr) + '</select></div>' +
-        '<div class="detail-section"><label>渠道类型</label><select class="select" id="cChannel">' + opts(CUST_CHANNELS, c.channel) + '</select></div>' +
+        '<div class="detail-section"><label>客户属性（可多选）</label><div class="chip-group">' + CUST_ATTRS.map(function (a) { var on = (Project._custEditAttr || []).indexOf(a) >= 0; return '<span class="chip toggle' + (on ? ' on' : '') + '" data-act="custAttrToggle" data-v="' + esc(a) + '">' + esc(a) + '</span>'; }).join('') + '</div></div>' +
+        '<div class="detail-section"><label>渠道类型（可多选）</label><div class="chip-group">' + CUST_CHANNELS.map(function (a) { var on = (Project._custEditChannel || []).indexOf(a) >= 0; return '<span class="chip toggle' + (on ? ' on' : '') + '" data-act="custChannelToggle" data-v="' + esc(a) + '">' + esc(a) + '</span>'; }).join('') + '</div></div>' +
         '<div class="detail-section"><label>覆盖区域</label><input class="input" id="cRegion" value="' + esc(c.region || '') + '"></div>' +
         '<div class="detail-section"><label>渠道名及网点数</label><input class="input" id="cOutlets" value="' + esc(c.outlets || '') + '"></div>' +
         '<div class="detail-section"><label>合作模式</label><select class="select" id="cMode">' + opts(CUST_MODES, c.mode) + '</select></div>' +
@@ -1331,8 +1436,7 @@
       },
       procToggle: function (el) {
         Project._procView = el.dataset.v || 'monthly';
-        var p = state.project.find(function (x) { return x.id === Project._detailId; });
-        var c = p && (p.customers || []).find(function (x) { return x.id === Project._custDetailId; });
+        var c = (state.customers || []).find(function (x) { return x.id === Project._custDetailId; });
         var box = document.getElementById('procChart');
         if (c && box) box.innerHTML = Project.renderProcChart(c);
       },
@@ -1366,6 +1470,8 @@
       commTC: function (el) { Project.acts._toggleChip(el, '_commChannel'); },
       commEA: function (el) { Project.acts._toggleChip(el, '_commEditAttr'); },
       commEC: function (el) { Project.acts._toggleChip(el, '_commEditChannel'); },
+      custAttrToggle: function (el) { Project.acts._toggleChip(el, '_custEditAttr'); },
+      custChannelToggle: function (el) { Project.acts._toggleChip(el, '_custEditChannel'); },
       toggleCommReplied: function (el) {
         var r = (state.commLog || []).find(function (x) { return x.id === el.dataset.id; }); if (!r) return;
         r.replied = !r.replied;
@@ -1415,36 +1521,49 @@
       },
 
       importCustTemplate: function (el) {
-        var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
         var tpl = (window.CIROA_CUSTOMERS || []);
         if (!tpl.length) { toast('未找到模板数据'); return; }
-        if (p.customers && p.customers.length && !ask('该项目已有 ' + p.customers.length + ' 条客户，确认追加导入模板清单（可能与现有重复）？')) return;
+        if (state.customers && state.customers.length && !ask('已存在 ' + state.customers.length + ' 条客户，确认追加导入模板清单（可能与现有重复）？')) return;
         var now = Date.now();
+        state.customers = state.customers || [];
         tpl.forEach(function (c) {
-          p.customers.push({
+          var legacy = c.stage || '';
+          var mapped = (CUST_STAGES.indexOf(legacy) >= 0) ? legacy : (LEGACY_STAGE_MAP[legacy] || '未合作');
+          state.customers.push({
             id: S.uid(), name: c.name, person: c.person || '', phone: c.phone || '',
-            attr: c.attr || '', channel: c.channel || '', region: c.region || '', outlets: c.outlets || '',
+            mailAddr: '', shipAddr: '',
+            province: c.province || '', city: c.city || '',
+            attrs: c.attr ? (CUST_ATTR_MAP[c.attr] || [c.attr]) : [],
+            channels: c.channel ? (CUST_CHANNEL_MAP[c.channel] || [c.channel]) : [],
+            region: c.region || '', outlets: c.outlets || '',
             mode: c.mode || '', sample: c.sample || '', visited: c.visited || '',
-            stage: c.stage || '跟进中', price: c.price || '', firstDate: c.firstDate || '', amount: c.amount || '',
+            stage: mapped, stageDetail: (legacy && legacy !== mapped) ? legacy : '',
+            price: c.price || '', firstDate: c.firstDate || '', amount: c.amount || '',
             progress: c.progress || '', category: c.category || '', connectDate: c.connectDate || '',
             repurchase: c.repurchase || '', potential: c.potential || '', owner: c.owner || '史霖',
             contactId: '', timeline: [], created: now, updatedAt: now
           });
         });
-        p.updatedAt = now;
         saveRender();
         toast('已导入 ' + tpl.length + ' 条客户');
       },
       addCust: function (el) {
-        var p = state.project.find(function (x) { return x.id === el.dataset.pid; }); if (!p) return;
-        p.customers = p.customers || [];
         var now = Date.now();
-        p.customers.unshift({ id: S.uid(), name: '', person: '', owner: '史霖', stage: '跟进中', attr: '代理商/经销商', timeline: [], created: now, updatedAt: now });
-        p.updatedAt = now;
-        Project._custDetailId = p.customers[0].id;
+        var nc = { id: S.uid(), name: '', person: '', owner: '史霖', stage: '未合作', attrs: [], channels: [], mailAddr: '', shipAddr: '', province: '', city: '', timeline: [], created: now, updatedAt: now };
+        state.customers = state.customers || [];
+        state.customers.unshift(nc);
+        Project._custDetailId = nc.id;
+        Project._custEditAttr = [];
+        Project._custEditChannel = [];
         renderPage(Project._renderKey);
       },
-      openCust: function (el) { Project._custDetailId = el.dataset.id; renderPage(Project._renderKey); },
+      openCust: function (el) {
+        Project._custDetailId = el.dataset.id;
+        var c = (state.customers || []).find(function (x) { return x.id === el.dataset.id; });
+        Project._custEditAttr = (c ? custAttrs(c) : []).slice();
+        Project._custEditChannel = (c ? custChannels(c) : []).slice();
+        renderPage(Project._renderKey);
+      },
       closeCust: function () { Project._custDetailId = null; renderPage(Project._renderKey); },
       clearCustContact: function () {
         var cselect = document.getElementById('cContact');
@@ -1452,17 +1571,18 @@
       },
       saveCust: function (el) {
         var id = el.dataset.id || Project._custDetailId; if (!id) return;
-        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
-        var c = (p.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
+        var c = (state.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
         var name = document.getElementById('cName').value.trim();
         if (!name) { toast('客户名称不能为空'); return; }
         c.name = name;
         c.overview = document.getElementById('cOverview').value.trim();
+        c.mailAddr = document.getElementById('cMailAddr').value.trim();
+        c.shipAddr = document.getElementById('cShipAddr').value.trim();
         c.province = document.getElementById('cProvince').value || '';
         c.city = document.getElementById('cCity').value || '';
         c.stage = document.getElementById('cStage').value;
-        c.attr = document.getElementById('cAttr').value;
-        c.channel = document.getElementById('cChannel').value;
+        c.attrs = (Project._custEditAttr || []).slice();
+        c.channels = (Project._custEditChannel || []).slice();
         c.region = document.getElementById('cRegion').value.trim();
         c.outlets = document.getElementById('cOutlets').value.trim();
         c.mode = document.getElementById('cMode').value;
@@ -1474,12 +1594,14 @@
         c.person = document.getElementById('cPerson').value.trim();
         c.phone = document.getElementById('cPhone').value.trim();
         c.contactId = document.getElementById('cContact').value || '';
-        // 若关联了人脉，同步更新人脉的渠道类型
+        // 若关联了人脉，同步更新人脉的渠道类型：客户多选（c.channels）的首个渠道回写为
+        // 联系人单选（channel），与网络关系网络的渠道筛选（按 c.channel）保持一致。
         if (c.contactId) {
           var linked = state.contacts.find(function (ct) { return ct.id === c.contactId; });
-          if (linked && linked.channel !== c.channel) {
-            linked.channel = c.channel;
-            linked.updatedAt = c.updatedAt;
+          if (linked) {
+            linked.channel = (c.channels && c.channels[0]) || linked.channel;
+            linked.channels = (c.channels || []).slice();
+            linked.updatedAt = Date.now();
           }
         }
         // 采购数据：读取录入行（月度金额数组，季度/年度由月度汇总衍生）
@@ -1489,7 +1611,6 @@
           return { ym: ym, amount: isNaN(amt) ? 0 : amt };
         }).filter(function (r) { return r.ym; });
         c.updatedAt = Date.now();
-        p.updatedAt = Date.now();
         Project._custDetailId = null;
         saveRender();
         toast('已保存');
@@ -1497,32 +1618,26 @@
       delCust: function (el) {
         var id = el.dataset.id || Project._custDetailId; if (!id) return;
         if (!ask('删除该客户？')) return;
-        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
-        p.customers = (p.customers || []).filter(function (x) { return x.id !== id; });
-        p.updatedAt = Date.now();
+        state.customers = (state.customers || []).filter(function (x) { return x.id !== id; });
         Project._custDetailId = null;
         saveRender();
         toast('已删除');
       },
       addCustProgress: function (el) {
         var id = el.dataset.id; if (!id) return;
-        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
-        var c = (p.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
+        var c = (state.customers || []).find(function (x) { return x.id === id; }); if (!c) return;
         var stage = document.getElementById('cTlStage').value.trim(); if (!stage) return;
         c.timeline = c.timeline || [];
         c.timeline.push({ id: S.uid(), time: Date.now(), stage: stage });
         c.updatedAt = Date.now();
-        p.updatedAt = Date.now();
         saveRender();
         toast('已保存记录');
       },
       delCustProgress: function (el) {
         var id = el.dataset.id; if (!id) return;
-        var p = state.project.find(function (x) { return x.id === Project._detailId; }); if (!p) return;
-        var c = (p.customers || []).find(function (x) { return x.id === Project._custDetailId; }); if (!c) return;
+        var c = (state.customers || []).find(function (x) { return x.id === Project._custDetailId; }); if (!c) return;
         c.timeline = (c.timeline || []).filter(function (t) { return t.id !== id; });
         c.updatedAt = Date.now();
-        p.updatedAt = Date.now();
         saveRender();
       },
       addProjectTimeline: function (el) {
@@ -2100,9 +2215,9 @@
       var self = this;
       var rows = list.map(function (c) {
         var custRef = null;
-        state.project.forEach(function (p) { (p.customers || []).forEach(function (cu) { if (cu.contactId === c.id) custRef = { pid: p.id, cid: cu.id }; }); });
+        (state.customers || []).forEach(function (cu) { if (cu.contactId === c.id) custRef = { cid: cu.id }; });
         var act = custRef
-          ? ('data-act="openCustFromContact" data-pid="' + custRef.pid + '" data-cid="' + custRef.cid + '"')
+          ? ('data-act="openCustFromContact" data-cid="' + custRef.cid + '"')
           : ('data-act="openContact" data-id="' + c.id + '"');
         var tag = custRef ? ' <span class="nc-tag">已关联客户</span>' : '';
         return '<div class="net-ch-item" ' + act + '>' +
@@ -2391,9 +2506,9 @@
 
     /* ---------- 行为（data-act 委托） ---------- */
     acts: {
-      tab: function (el) { Contacts._tab = el.dataset.view; Contacts._branch = null; renderPage('contacts'); },
-      openBranch: function (el) { Contacts._branch = el.dataset.key; Contacts._search = ''; Contacts._attrs = {}; renderPage('contacts'); },
-      closeBranch: function () { Contacts._branch = null; Contacts._search = ''; Contacts._attrs = {}; renderPage('contacts'); },
+      tab: function (el) { Contacts._tab = el.dataset.view; Contacts._branch = null; renderPage('crm'); },
+      openBranch: function (el) { Contacts._branch = el.dataset.key; Contacts._search = ''; Contacts._attrs = {}; renderPage('crm'); },
+      closeBranch: function () { Contacts._branch = null; Contacts._search = ''; Contacts._attrs = {}; renderPage('crm'); },
       addContact: function () {
         var company = document.getElementById('cCompany').value.trim();
         var name = document.getElementById('cName').value.trim();
@@ -2421,19 +2536,25 @@
         saveRender();
         toast('已添加 ' + name);
       },
-      openContact: function (el) { Contacts._detailId = el.dataset.id; renderPage('contacts'); },
+      openContact: function (el) { Contacts._detailId = el.dataset.id; renderPage('crm'); },
       openCustFromContact: function (el) {
-        Project._detailId = el.dataset.pid;
         Project._custDetailId = el.dataset.cid;
-        renderPage(Project._renderKey);
+        // 与 editCust 保持一致：打开时从客户已有数据初始化多选缓冲，否则渠道/属性 chips 会错乱、保存覆盖原值（数据丢失）
+        var c = (state.customers || []).find(function (x) { return x.id === el.dataset.cid; });
+        Project._custEditAttr = (c ? custAttrs(c) : []).slice();
+        Project._custEditChannel = (c ? custChannels(c) : []).slice();
+        renderPage('crm');
       },
-      closeDetail: function () { Contacts._detailId = null; renderPage('contacts'); },
+      closeDetail: function () { Contacts._detailId = null; renderPage('crm'); },
       goProject: function (el) {
         Contacts._detailId = null;
         Project._detailId = el.dataset.id;
-        renderPage(Project._renderKey);
+        // CRM.render 会劫持 Project._renderKey='crm' 以接管 Project 的 acts，
+        // 这里必须显式切回真正的 project 页，否则会重渲染 CRM 而非打开项目弹窗（反向跳转失效）。
+        Project._renderKey = 'project';
+        renderPage('project');
       },
-      mapNetChannel: function (el) { Contacts._netChannel = (el.dataset.v || '') ? el.dataset.v : null; Contacts._netSel = null; renderPage('contacts'); },
+      mapNetChannel: function (el) { Contacts._netChannel = (el.dataset.v || '') ? el.dataset.v : null; Contacts._netSel = null; renderPage('crm'); },
       saveContact: function () {
         var id = Contacts._detailId; if (!id) return;
         var d = state.contacts.find(function (x) { return x.id === id; }); if (!d) return;
@@ -2456,16 +2577,15 @@
         d.relStatus = relStatusEl ? relStatusEl.getAttribute('data-val') : '';
         d.relLevel = relLevelEl ? relLevelEl.getAttribute('data-val') : '';
         d.updatedAt = Date.now();
-        // 若该人脉关联了 Ciroa 客户，同步更新客户的渠道类型
-        var syncChannel = d.channel;
-        state.project.forEach(function (p) {
-          (p.customers || []).forEach(function (cust) {
-            if (cust.contactId === d.id && cust.channel !== syncChannel) {
-              cust.channel = syncChannel;
-              cust.updatedAt = d.updatedAt;
-              p.updatedAt = d.updatedAt;
-            }
-          });
+        // 若该人脉关联了客户，同步更新客户的渠道类型：联系人渠道为单选（d.channel），
+        // 客户渠道为多选（c.channels），此处把单选联系人渠道写入客户多选（无渠道时保留原值）。
+        // 注意：联系人另有一套多选 d.channels（ALL_CHANNELS 词表）仅作个人档案，不参与同步/网络筛选。
+        var syncChannel = d.channel || '';
+        (state.customers || []).forEach(function (cust) {
+          if (cust.contactId === d.id) {
+            cust.channels = syncChannel ? [syncChannel] : (cust.channels || []);
+            cust.updatedAt = d.updatedAt;
+          }
         });
         Contacts._detailId = null;
         saveRender();
@@ -2486,10 +2606,8 @@
         if (!id) return;
         if (!ask('删除该人脉及其所有记录？此操作不可恢复。')) return;
         // 删除前先清理所有指向该人脉的引用，避免产生悬空关联（否则网络图会引用已删节点而崩溃）
-        (state.project || []).forEach(function (p) {
-          (p.customers || []).forEach(function (cu) {
-            if (cu.contactId === id) { cu.contactId = ''; cu.updatedAt = Date.now(); }
-          });
+        (state.customers || []).forEach(function (cu) {
+          if (cu.contactId === id) { cu.contactId = ''; cu.updatedAt = Date.now(); }
         });
         state.contacts.forEach(function (c) {
           if (c.id === id) return;
@@ -2533,7 +2651,7 @@
       netZoomReset: function () { Contacts.resetNetView(); },
 
       /* ---------- 微信好友行为 ---------- */
-      wechatTab: function () { Contacts._tab = 'wechat'; Contacts._wechatSearch = ''; Contacts._wechatStatus = ''; Contacts._wechatChannel = ''; renderPage('contacts'); },
+      wechatTab: function () { Contacts._tab = 'wechat'; Contacts._wechatSearch = ''; Contacts._wechatStatus = ''; Contacts._wechatChannel = ''; renderPage('crm'); },
       wechatAdd: function () {
         Contacts._wtEditId = '';
         var host = document.getElementById('wtOverlay');
@@ -2743,15 +2861,15 @@
       }
       // 详情 overlay 背景点击关闭
       var ov = document.getElementById('contactOverlay');
-      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'contactOverlay') { self._detailId = null; renderPage('contacts'); } });
+      if (ov) ov.addEventListener('click', function (e) { if (e.target.id === 'contactOverlay') { self._detailId = null; renderPage('crm'); } });
       // 微信好友视图：搜索 / 筛选 / 表单标签
       if (this._tab === 'wechat') {
         var ws = document.getElementById('wtSearch');
         if (ws) ws.addEventListener('input', function (e) { Contacts._wechatSearch = e.target.value.trim().toLowerCase(); Contacts.renderWechatTable(state); });
         var wst = document.getElementById('wtStatus');
-        if (wst) wst.addEventListener('change', function (e) { Contacts._wechatStatus = e.target.value; renderPage('contacts'); });
+        if (wst) wst.addEventListener('change', function (e) { Contacts._wechatStatus = e.target.value; renderPage('crm'); });
         var wch = document.getElementById('wtChannel');
-        if (wch) wch.addEventListener('change', function (e) { Contacts._wechatChannel = e.target.value; renderPage('contacts'); });
+        if (wch) wch.addEventListener('change', function (e) { Contacts._wechatChannel = e.target.value; renderPage('crm'); });
         Contacts.bindWechatForm();
       }
     }
@@ -3533,37 +3651,158 @@
 
   /* ================= 模块注册 ================= */
   // ---- ciroa 中国线下拓展（核心主业务，一级板块）----
-  // 复用 Project 模块对「ciroa中国线下拓展」项目的概况 + 客户跟进渲染，但整页铺满（不套 760px 弹窗），
-  // 客户跟进信息多、操作频繁，全宽更顺手。该项目已从「项目」看板隐藏，单独作为一级板块，避免重复。
-  var Ciroa = {
-    key: 'ciroa', label: teamMode ? '客户管理' : 'ciroa线下', icon: '◈',
+  // 客户管理：合并原「ciroa线下」与「人脉」，统一为跨品牌 / 跨产品的客户 + 人脉中枢。
+  // 客户数据已升为顶层 state.customers；人脉仍在 state.contacts。
+  // 复用 Project 的客户视图渲染 + Contacts 的人脉 / 微信 / 图谱渲染，组合成 7 个子页。
+  var CRM = {
+    key: 'crm', label: '客户管理', icon: '◈',
+    _tab: 'map', _pbSearch: '',
+    // 拼音首字母（常用字覆盖；未命中归入 #）。用于通讯录 A-Z 索引。
+    _PY: {
+      '一': 'Y', '二': 'E', '三': 'S', '四': 'S', '五': 'W', '六': 'L', '七': 'Q', '八': 'B', '九': 'J', '十': 'S',
+      '有': 'Y', '限': 'X', '公': 'G', '司': 'S', '贸': 'M', '易': 'Y', '上': 'S', '北': 'B', '广': 'G', '浙': 'Z',
+      '江': 'J', '南': 'N', '京': 'J', '深': 'S', '成': 'C', '重': 'C', '天': 'T', '杭': 'H', '州': 'Z', '苏': 'S',
+      '山': 'S', '东': 'D', '河': 'H', '湖': 'H', '福': 'F', '建': 'J', '安': 'A', '徽': 'H', '辽': 'L', '宁': 'N',
+      '黑': 'H', '吉': 'J', '林': 'L', '西': 'X', '甘': 'G', '青': 'Q', '海': 'H', '云': 'Y', '贵': 'G', '内': 'N',
+      '蒙': 'M', '新': 'X', '疆': 'J', '香': 'X', '港': 'G', '台': 'T', '澳': 'A', '中': 'Z', '国': 'G', '人': 'R',
+      '民': 'M', '科': 'K', '技': 'J', '实': 'S', '业': 'Y', '集': 'J', '团': 'T', '股': 'G', '份': 'F', '进': 'J',
+      '出': 'C', '口': 'K', '品': 'P', '牌': 'P', '生': 'S', '活': 'H', '日': 'R', '用': 'Y', '化': 'H', '工': 'G',
+      '城': 'C', '商': 'S', '超': 'C', '市': 'S', '连': 'L', '锁': 'S', '物': 'W', '流': 'L', '供': 'G', '应': 'Y',
+      '链': 'L', '医': 'Y', '药': 'Y', '健': 'J', '康': 'K', '美': 'M', '妆': 'Z', '食': 'S', '饮': 'Y', '服': 'F',
+      '装': 'Z', '电': 'D', '子': 'Z', '网': 'W', '创': 'C', '智': 'Z', '保': 'B', '源': 'Y', '教': 'J', '文': 'W',
+      '旅': 'L', '游': 'Y', '地': 'D', '产': 'C', '金': 'J', '融': 'R', '险': 'X', '银': 'Y', '投': 'T', '资': 'Z',
+      '基': 'J', '传': 'C', '媒': 'M', '告': 'G', '影': 'Y', '体': 'T', '政': 'Z', '学': 'X', '院': 'Y', '研': 'Y',
+      '协': 'X', '社': 'S', '村': 'C', '镇': 'Z', '县': 'X', '自': 'Z', '治': 'Z',
+      '万': 'W', '百': 'B', '千': 'Q', '大': 'D', '小': 'X', '老': 'L', '华': 'H', '光': 'G', '明': 'M', '兴': 'X', '旺': 'W', '丰': 'F', '泰': 'T', '盛': 'S', '瑞': 'R', '祥': 'X', '永': 'Y', '和': 'H', '鑫': 'X', '聚': 'J', '优': 'Y', '选': 'X', '惠': 'H', '购': 'G', '乐': 'L', '酷': 'K', '潮': 'C', '尚': 'S', '梵': 'F', '简': 'J', '素': 'S', '颜': 'Y', '色': 'S', '蓝': 'L', '宝': 'B', '恒': 'H', '信': 'X', '诚': 'C', '卓': 'Z', '越': 'Y', '途': 'T', '远': 'Y', '邦': 'B', '德': 'D', '联': 'L', '合': 'H', '众': 'Z', '汇': 'H', '通': 'T', '达': 'D', '顺': 'S', '驰': 'C', '速': 'S', '快': 'K', '佳': 'J', '好': 'H', '良': 'L', '友': 'Y', '缘': 'Y', '喜': 'X', '福': 'F', '迈': 'M', '腾': 'T', '讯': 'X', '飞': 'F', '跃': 'Y', '星': 'X', '辰': 'C', '阳': 'Y', '海': 'H', '川': 'C', '峰': 'F', '森': 'S', '木': 'M', '园': 'Y', '景': 'J', '轩': 'X',
+      '王': 'W', '李': 'L', '张': 'Z', '刘': 'L', '陈': 'C', '杨': 'Y', '黄': 'H', '赵': 'Z', '周': 'Z', '吴': 'W', '徐': 'X', '孙': 'S', '马': 'M', '朱': 'Z', '胡': 'H', '郭': 'G', '何': 'H', '高': 'G', '林': 'L', '罗': 'L', '郑': 'Z', '梁': 'L', '谢': 'X', '宋': 'S', '唐': 'T', '许': 'X', '韩': 'H', '冯': 'F', '邓': 'D', '曹': 'C', '彭': 'P', '曾': 'Z', '肖': 'X', '田': 'T', '董': 'D', '袁': 'Y', '潘': 'P', '于': 'Y', '蒋': 'J', '蔡': 'C', '余': 'Y', '杜': 'D', '叶': 'Y', '程': 'C', '苏': 'S', '魏': 'W', '吕': 'L', '丁': 'D', '任': 'R', '沈': 'S', '姚': 'Y', '卢': 'L', '傅': 'F', '钟': 'Z', '姜': 'J', '崔': 'C', '谭': 'T', '廖': 'L', '范': 'F', '汪': 'W', '陆': 'L', '石': 'S', '戴': 'D', '贾': 'J', '韦': 'W', '夏': 'X', '邱': 'Q', '方': 'F', '侯': 'H', '邹': 'Z', '熊': 'X', '孔': 'K', '秦': 'Q', '阎': 'Y', '薛': 'X', '段': 'D', '雷': 'L', '黎': 'L', '龙': 'L', '陶': 'T', '贺': 'H', '毛': 'M', '郝': 'H', '顾': 'G', '龚': 'G', '邵': 'S', '覃': 'Q', '武': 'W', '钱': 'Q'
+    },
+    firstLetter: function (name) {
+      if (!name) return '#';
+      var ch = name.charAt(0);
+      var code = name.charCodeAt(0);
+      if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) return ch.toUpperCase();
+      if (code >= 0x4E00 && code <= 0x9FA5) return this._PY[ch] || '#';
+      return '#';
+    },
     render: function (s) {
-      var p = s.project.find(function (x) { return x.name === CIROA_PROJECT_NAME; });
-      Project._detailId = p ? p.id : null;
-      Project._ownerKey = 'ciroa';
-      Project._renderKey = 'ciroa';
-      var noProjectMsg = '<div class="card"><div class="empty">' + (teamMode ?
-        '尚未创建「客户管理」主业务项目。请先在「项目」中创建项目（项目名填 ciroa中国线下拓展），本板块会自动同步。' :
-        '尚未创建「ciroa中国线下拓展」项目。请先在「项目」中创建该主业务项目，本板块会自动同步。') + '</div></div>';
-      var tabs = '<div class="detail-tabs ciroa-tabs">' +
-        (p ? '<button class="dtab ' + (Project._projTab === 'overview' ? 'active' : '') + '" data-act="projTab" data-t="overview">客户版图</button>' +
-             '<button class="dtab ' + (Project._projTab === 'customers' ? 'active' : '') + '" data-act="projTab" data-t="customers">客户跟进</button>' : '') +
-        '<button class="dtab ' + (Project._projTab === 'comm' ? 'active' : '') + '" data-act="projTab" data-t="comm">沟通记录</button>' +
+      Project._renderKey = 'crm';
+      var tabs = '<div class="detail-tabs crm-tabs">' +
+        this._tabBtn('map', '客户版图') +
+        this._tabBtn('phonebook', '客户通讯录') +
+        this._tabBtn('follow', '客户跟进') +
+        this._tabBtn('comm', '日常沟通') +
+        this._tabBtn('wechat', '微信好友') +
+        this._tabBtn('network', '人脉网络') +
+        this._tabBtn('sales', '销售跟进') +
         '</div>';
       var body;
-      if (Project._projTab === 'comm') body = Project.renderCommLog(s);
-      else if (!p) body = noProjectMsg;
-      else body = (Project._projTab === 'customers') ? Project.renderCustomers(s, p) : Project.renderCustMap(s, p);
-      return section(teamMode ? '客户管理' : 'ciroa中国线下拓展', '核心主业务 · 渠道拓展 CRM', '') +
-        '<div class="ciroa-page">' + tabs + '<div class="ciroa-body">' + body + '</div></div>' +
-        Project.renderCustOverlay(s);
+      if (this._tab === 'phonebook') body = this.renderPhonebook(s);
+      else if (this._tab === 'follow') body = Project.renderCustomers(s);
+      else if (this._tab === 'comm') body = Project.renderCommLog(s);
+      else if (this._tab === 'wechat') body = Contacts.renderWechat(s);
+      else if (this._tab === 'network') body = this.renderNetwork(s);
+      else if (this._tab === 'sales') body = this.renderSales(s);
+      else body = Project.renderCustMap(s);
+      return section('客户管理', '跨品牌 · 客户与人脉一体化中枢', '') +
+        '<div class="ciroa-page crm-page">' + tabs + '<div class="ciroa-body crm-body">' + body + '</div></div>' +
+        Project.renderCustOverlay(s) +
+        (this._tab === 'network' ? Contacts.renderOverlay(s) : '');
     },
-    // 直接复用 Project 的客户/概况交互逻辑（这些 act 内部都用显式 Project._xxx，不依赖 this）
-    acts: Project.acts,
-    // 转发给 Project.onRender：ciroa 页面走的是本模块的 onRender，
-    // 不转发的话页内输入框绑定（客户搜索 / 关联人脉过滤 / 沟通记录搜索）以及
-    // 客户详情 backdrop 的关闭都不会生效（Project.onRender 内部已按 id 判空，安全）。
-    onRender: function () { Project.onRender.call(Project); }
+    _tabBtn: function (t, label) {
+      return '<button class="dtab ' + (this._tab === t ? 'active' : '') + '" data-act="crmTab" data-t="' + t + '">' + label + '</button>';
+    },
+    renderNetwork: function (s) {
+      var netTabs = '<div class="view-tabs" style="margin-bottom:10px">' +
+        '<button class="tab-btn ' + (Contacts._tab === 'list' ? 'active' : '') + '" data-act="tab" data-view="list">人脉列表</button>' +
+        '<button class="tab-btn ' + (Contacts._tab === 'graph' ? 'active' : '') + '" data-act="tab" data-view="graph">关系网络</button></div>';
+      var inner = (Contacts._tab === 'graph') ? Contacts.renderGraph(s) : Contacts.renderList(s);
+      return netTabs + inner;
+    },
+    renderPhonebook: function (s) {
+      var self = this;
+      var list = (state.customers || []).slice();
+      var q = (this._pbSearch || '').trim().toLowerCase();
+      if (q) list = list.filter(function (c) {
+        var hay = [c.name, c.company, c.person, c.phone, c.province, c.city, (c.attrs || []).join(' '), (c.channels || []).join(' '), c.mailAddr, c.shipAddr, c.overview].join(' ').toLowerCase();
+        return hay.indexOf(q) >= 0;
+      });
+      var groups = {};
+      list.forEach(function (c) {
+        var nm = c.name || c.company || '（未命名）';
+        var L = self.firstLetter(nm);
+        (groups[L] = groups[L] || []).push(c);
+      });
+      var letters = Object.keys(groups).sort(function (a, b) { if (a === '#') return 1; if (b === '#') return -1; return a < b ? -1 : 1; });
+      var searchBar = '<div class="cust-toolbar"><input class="input cust-search" id="pbSearch" type="text" placeholder="搜索公司 / 联系人 / 电话 / 地区 / 渠道…" value="' + esc(this._pbSearch || '') + '">' +
+        '<button class="btn primary" data-act="addCust">+ 新增客户</button></div>';
+      if (!letters.length) return searchBar + '<div class="empty">暂无客户，点「新增客户」添加，或从「客户跟进」导入初始清单。</div>';
+      var index = '<div class="pb-index">' + letters.map(function (L) { return '<a class="pb-idx" href="#pb-' + L + '">' + L + '</a>'; }).join('') + '</div>';
+      var html = letters.map(function (L) {
+        var rows = groups[L].sort(function (a, b) { return (a.name || a.company || '').localeCompare(b.name || b.company || ''); }).map(function (c) {
+          var linked = c.contactId ? Project.contactName(s, c.contactId) : '';
+          return '<div class="pb-row" data-act="openCust" data-id="' + esc(c.id) + '">' +
+            '<div class="pb-main"><div class="pb-name">' + esc(c.name || c.company || '（未命名）') + '</div>' +
+            '<div class="pb-meta">' + esc(c.person || '-') + ' · ' + esc((c.province || '') + (c.city ? (' - ' + c.city) : '')) + ' · ' + esc(c.phone || '-') + '</div></div>' +
+            '<div class="pb-tags"><span class="tag sm ' + (CUST_STAGE_COLOR[custStage(c)] || '') + '">' + esc(custStage(c) || '未合作') + '</span>' +
+            custAttrs(c).map(function (a) { return '<span class="tag sm">' + esc(a) + '</span>'; }).join('') +
+            custChannels(c).map(function (a) { return '<span class="tag sm muted">' + esc(a) + '</span>'; }).join('') + '</div>' +
+            (linked ? '<div class="pb-link">关联人脉：' + esc(linked) + '</div>' : '') +
+            '</div>';
+        }).join('');
+        return '<div class="pb-group" id="pb-' + L + '"><div class="pb-letter">' + L + '</div>' + rows + '</div>';
+      }).join('');
+      return searchBar + index + '<div class="pb-list">' + html + '</div>';
+    },
+    renderSales: function (s) {
+      var log = (state.salesLog || []).slice().sort(function (a, b) { return (b.created || 0) - (a.created || 0); });
+      var stages = ['线索', '洽谈', '报价', '成交', '流失'];
+      var colorByStage = { '线索': 'blue', '洽谈': 'amber', '报价': 'teal', '成交': 'green', '流失': 'red' };
+      var board = '<div class="cust-board sales-board">' + stages.map(function (st) {
+        var items = log.filter(function (x) { return (x.stage || '线索') === st; });
+        var cards = items.length ? items.map(function (x) {
+          return '<div class="cust-card"><div class="c-name">' + esc(x.customer || '（未命名客户）') + '</div>' +
+            '<div class="c-meta">' + esc(x.amount || '') + ' · ' + esc(x.date || '') + '</div>' +
+            (x.note ? '<div class="muted sm">' + esc(x.note) + '</div>' : '') + '</div>';
+        }).join('') : '<div class="empty">暂无</div>';
+        return '<div class="cust-col"><div class="col-head"><span class="col-dot ' + (colorByStage[st] || '') + '"></span>' + st + ' <span class="count">' + items.length + '</span></div>' + cards + '</div>';
+      }).join('') + '</div>';
+      var form = '<div class="card" style="margin-top:14px"><h3 class="section-title">新增销售跟进</h3>' +
+        '<div class="form-grid">' +
+        '<div><label>客户 / 商机</label><input class="input" id="saleCustomer" placeholder="客户名或商机名"></div>' +
+        '<div><label>阶段</label><select class="select" id="saleStage">' + stages.map(function (st) { return '<option' + (st === '线索' ? ' selected' : '') + '>' + st + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>金额</label><input class="input" id="saleAmount" placeholder="如：12000"></div>' +
+        '<div><label>日期</label><input class="input" id="saleDate" type="date" value="' + today() + '"></div>' +
+        '<div class="full"><label>备注</label><textarea class="textarea" id="saleNote" rows="2" placeholder="进展 / 下一步…"></textarea></div>' +
+        '</div><div style="margin-top:12px;display:flex;justify-content:flex-end"><button class="btn primary" data-act="addSale">保存</button></div></div>';
+      return '<div class="muted" style="margin-bottom:8px">销售跟进基础框架：按「线索 → 洽谈 → 报价 → 成交 / 流失」管理商机。数据存于 state.salesLog，可在后续接入与客户的关联。</div>' + board + form;
+    },
+    acts: Object.assign({}, Project.acts, Contacts.acts, {
+      crmTab: function (el) { CRM._tab = el.dataset.t; renderPage('crm'); },
+      addSale: function () {
+        function val(id) { var e = document.getElementById(id); return e ? e.value.trim() : ''; }
+        var customer = val('saleCustomer'); if (!customer) { toast('请填写客户 / 商机'); return; }
+        state.salesLog = state.salesLog || [];
+        state.salesLog.unshift({
+          id: S.uid(), customer: customer, stage: val('saleStage') || '线索',
+          amount: val('saleAmount'), date: val('saleDate'), note: val('saleNote'), created: Date.now(), updatedAt: Date.now()
+        });
+        saveRender();
+        toast('已添加销售跟进');
+      }
+    }),
+    // 转发给 Project.onRender / Contacts.onRender：客户搜索、关联人脉过滤、沟通记录搜索、
+    // 人脉图谱 / 省-市联动等输入框绑定，以及客户 / 人脉详情 backdrop 关闭都依赖它们。
+    onRender: function () {
+      Project.onRender.call(Project);
+      Contacts.onRender.call(Contacts);
+      var pb = document.getElementById('pbSearch');
+      if (pb) pb.addEventListener('input', function () {
+        var v = pb.value.trim().toLowerCase();
+        CRM._pbSearch = v;
+        var rows = document.querySelectorAll('.pb-row');
+        for (var i = 0; i < rows.length; i++) rows[i].style.display = (rows[i].textContent.toLowerCase().indexOf(v) >= 0) ? '' : 'none';
+      });
+    }
   };
 
   // 团队总览（老板/管理员视角）：聚合各销售的客户/待办/项目进展
@@ -3582,17 +3821,15 @@
           var todo = st.todo || [];
           var done = todo.filter(function (t) { return t.done; }).length;
           var rate = todo.length ? Math.round(done / todo.length * 100) : 0;
-          // 客户挂在 ciroa 项目上（p.customers），并非 st.ciroa.customers —— 之前取错会永远显示 0
-          var proj = st.project || [];
-          var ciroaP = proj.find(function (x) { return x.name === CIROA_PROJECT_NAME; });
-          var cust = (ciroaP && ciroaP.customers) || [];
+          // 客户已升为顶层 state.customers，不再寄生在 ciroa 项目下
+          var cust = st.customers || [];
           var commLog = st.commLog || [];
           var todayStr = new Date().toDateString();
           var commToday = commLog.filter(function (r) {
             return r.greetAt && new Date(r.greetAt).toDateString() === todayStr;
           }).length;
           var stages = {};
-          cust.forEach(function (c) { var k = c.stage || '未知'; stages[k] = (stages[k] || 0) + 1; });
+          cust.forEach(function (c) { var k = custStage(c) || '未合作'; stages[k] = (stages[k] || 0) + 1; });
           return {
             user: r.user,
             todoTotal: todo.length, todoDone: done, rate: rate,
@@ -3648,14 +3885,14 @@
     acts: { ovRefresh: function () { Overview._render(); } }
   };
 
-  var modules = [Calendar, Todo, Project, Ciroa, Strategy, Contacts, Notes, Habit, Finance, Memo];
+  var modules = [Calendar, Todo, Project, CRM, Strategy, Notes, Habit, Finance, Memo];
   var byKey = {};
   modules.forEach(function (m) { byKey[m.key] = m; });
 
   /* ================= 渲染 / 路由 ================= */
   function renderNav() {
     navEl.innerHTML = modules.map(function (m) {
-      var core = m.key === 'ciroa' ? ' core' : '';
+      var core = m.key === 'crm' ? ' core' : '';
       var active = m.key === currentKey ? ' active' : '';
       return '<button class="nav-item ' + active + core + '" data-nav="' + m.key + '">' +
         '<span class="ico">' + m.icon + '</span><span class="label">' + m.label + '</span></button>';
@@ -4115,7 +4352,10 @@
   function bootTeamUser() {
     state = S.load();
     if (currentUser && (currentUser.role === 'boss' || currentUser.role === 'admin')) currentKey = 'overview';
-    if (migrateProjectCats()) S.save(false);
+    var migrated = migrateProjectCats();
+    // 一次性把寄生在项目下的客户升为顶层客户库（幂等，靠 state._custTopV2 拦重）
+    if (migrateCustomersToTop()) migrated = true;
+    if (migrated) S.save(false);
     buildModules();
     renderIdentityBar();
     go();
@@ -4156,9 +4396,9 @@
   function buildModules() {
     var role = (currentUser && currentUser.role) || 'sales';
     if (role === 'boss' || role === 'admin') {
-      modules = [Overview, Calendar, Todo, Project, Ciroa, Contacts, Memo];
+      modules = [Overview, Calendar, Todo, Project, CRM, Strategy, Notes, Habit, Finance, Memo];
     } else {
-      modules = [Calendar, Todo, Project, Ciroa, Contacts, Memo];
+      modules = [Calendar, Todo, Project, CRM, Strategy, Notes, Habit, Finance, Memo];
     }
     byKey = {};
     modules.forEach(function (m) { byKey[m.key] = m; });
@@ -4176,6 +4416,8 @@
     var hasLocal = false;
     try { hasLocal = !!localStorage.getItem('inaka_workbench_state_v1'); } catch (e) {}
     if (migrateProjectCats()) S.save(false);
+    // 一次性把寄生在项目下的客户升为顶层客户库（幂等，靠 state._custTopV2 拦重）
+    if (migrateCustomersToTop()) S.save(false);
     if (!hasLocal) {
       fetch('data/seed.json').then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { if (j) { S.importJson(j); state = S.getState(); } })
