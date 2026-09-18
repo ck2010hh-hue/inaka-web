@@ -44,6 +44,8 @@
       strategy: [],
       // 人脉
       contacts: [],
+      // 微信好友（从微信好友资料截图提取的客户型好友，独立于人脉资源视图单独管理）
+      wechatFriends: [],
       // 理财
       finance: { accounts: [], records: [], budgets: [] },
       // 复盘 / 备忘（板块显示名已改为「备忘」，字段名沿用 review 以兼容已同步数据）
@@ -654,7 +656,7 @@
   function mergeState(local, remote) {
     if (!remote) return { state: local, changed: false };
     var out = clone(local);
-    var ARR_KEYS = ['todo', 'project', 'notes', 'contacts', 'strategy', 'growth', 'review', 'commLog'];
+    var ARR_KEYS = ['todo', 'project', 'notes', 'contacts', 'wechatFriends', 'strategy', 'growth', 'review', 'commLog'];
     ARR_KEYS.forEach(function (k) {
       if (k === 'project') {
         out[k] = mergeArrWith(local[k], remote[k], function (i) { return i.id; }, mergeProject);
